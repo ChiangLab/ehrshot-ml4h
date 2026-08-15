@@ -1,0 +1,78 @@
+dataset:
+  name: EHRSHOT
+  format: Apache Parquet
+  approximate_size_bytes: 218429887
+  sha256: 7a1d7d2562d065f2cac5b22f9f786ed33477b0982bdbb105db69d48b69817a7e
+  row_groups: 40
+  event_count: 41661637
+  subject_count: 6739
+  code_count: 31252
+  earliest_time: "1909-09-03 00:00:00"
+  latest_time: "2023-03-09 08:00:00"
+  published_visit_count: 921499
+  expected_columns:
+    subject_id: BIGINT
+    time: TIMESTAMP
+    code: VARCHAR
+    numeric_value: FLOAT
+    text_value: VARCHAR
+    unit: VARCHAR
+    omop_table: VARCHAR
+  omop_table_counts:
+    measurement: 30622455
+    observation: 2971425
+    drug_exposure: 2453531
+    note: 1980918
+    procedure_occurrence: 1254049
+    condition_occurrence: 1219611
+    visit_occurrence: 921451
+    visit_detail: 199471
+    person: 24928
+    device_exposure: 13133
+    death: 665
+
+assets:
+  expected_tasks:
+    - guo_icu
+    - new_hyperlipidemia
+    - chexpert
+    - guo_los
+    - lab_hyponatremia
+    - new_acutemi
+    - lab_anemia
+    - lab_hypoglycemia
+    - lab_hyperkalemia
+    - lab_thrombocytopenia
+    - new_pancan
+    - new_lupus
+    - new_celiac
+    - guo_readmission
+    - new_hypertension
+  required_label_columns:
+    - subject_id
+    - prediction_time
+    - boolean_value
+    - integer_value
+    - categorical_value
+  split_semantics:
+    train: train
+    tuning: validation
+    held_out: test
+  vocabulary_prefixes:
+    - LOINC
+    - SNOMED
+    - RxNorm
+    - CPT4
+    - Visit
+    - ICD10CM
+    - HCPCS
+    - Gender
+    - Race
+    - Ethnicity
+
+official_repository:
+  url: https://github.com/som-shahlab/ehrshot-benchmark
+  commit: a7cfb5298f99504740387bad8b55b9c9fa4578a3
+  retrieval_date: "2026-08-07"
+  documentation_url: https://github.com/som-shahlab/ehrshot-benchmark/tree/a7cfb5298f99504740387bad8b55b9c9fa4578a3
+  restricted_dataset_source: https://redivis.com/datasets/53gc-8rhx41kgt

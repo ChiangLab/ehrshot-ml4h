@@ -1,0 +1,153 @@
+version: 1
+
+# MEDS split names in the downloaded EHRSHOT release and the public names used
+# in this project. Patient membership is never re-randomized.
+split_mapping:
+  train: train
+  tuning: validation
+  held_out: test
+
+# The small, medically interpretable panel recommended for the first complete
+# run. This is a breadth panel, not a claim that these are the only useful tasks.
+primary_panel:
+  - lab_anemia
+  - new_acutemi
+  - guo_los
+
+tasks:
+  guo_los:
+    display_name: Long length of stay
+    family: operational_outcome
+    label_field: boolean_value
+    target_rule: boolean_true
+    allowed_values: [false, true]
+    prediction_question: Will this hospitalization last at least seven days?
+    timing: 11:59 PM on the admission day
+
+  guo_readmission:
+    display_name: 30-day readmission
+    family: operational_outcome
+    label_field: boolean_value
+    target_rule: boolean_true
+    allowed_values: [false, true]
+    prediction_question: Will the patient be readmitted within 30 days?
+    timing: 11:59 PM on the admission day
+
+  guo_icu:
+    display_name: ICU transfer
+    family: operational_outcome
+    label_field: boolean_value
+    target_rule: boolean_true
+    allowed_values: [false, true]
+    prediction_question: Will the patient transfer to an ICU during this hospitalization?
+    timing: 11:59 PM on the admission day
+
+  lab_anemia:
+    display_name: Anemia
+    family: laboratory_result
+    label_field: integer_value
+    target_rule: integer_nonzero
+    allowed_values: [0, 1, 2, 3]
+    prediction_question: Will the next qualifying hemoglobin result be abnormal?
+    timing: immediately before the result is recorded
+
+  lab_thrombocytopenia:
+    display_name: Thrombocytopenia
+    family: laboratory_result
+    label_field: integer_value
+    target_rule: integer_nonzero
+    allowed_values: [0, 1, 2, 3]
+    prediction_question: Will the next qualifying platelet result be abnormal?
+    timing: immediately before the result is recorded
+
+  lab_hyponatremia:
+    display_name: Hyponatremia
+    family: laboratory_result
+    label_field: integer_value
+    target_rule: integer_nonzero
+    allowed_values: [0, 1, 2, 3]
+    prediction_question: Will the next qualifying sodium result be abnormal?
+    timing: immediately before the result is recorded
+
+  lab_hyperkalemia:
+    display_name: Hyperkalemia
+    family: laboratory_result
+    label_field: integer_value
+    target_rule: integer_nonzero
+    allowed_values: [0, 1, 2, 3]
+    prediction_question: Will the next qualifying potassium result be abnormal?
+    timing: immediately before the result is recorded
+
+  lab_hypoglycemia:
+    display_name: Hypoglycemia
+    family: laboratory_result
+    label_field: integer_value
+    target_rule: integer_nonzero
+    allowed_values: [0, 1, 2, 3]
+    prediction_question: Will the next qualifying glucose result be abnormal?
+    timing: immediately before the result is recorded
+
+  new_acutemi:
+    display_name: New acute myocardial infarction diagnosis
+    family: incident_diagnosis
+    label_field: boolean_value
+    target_rule: boolean_true
+    allowed_values: [false, true]
+    prediction_question: Will the patient's first acute MI diagnosis occur within one year?
+    timing: 11:59 PM on the discharge day
+
+  new_hypertension:
+    display_name: New hypertension diagnosis
+    family: incident_diagnosis
+    label_field: boolean_value
+    target_rule: boolean_true
+    allowed_values: [false, true]
+    prediction_question: Will the patient's first hypertension diagnosis occur within one year?
+    timing: 11:59 PM on the discharge day
+
+  new_hyperlipidemia:
+    display_name: New hyperlipidemia diagnosis
+    family: incident_diagnosis
+    label_field: boolean_value
+    target_rule: boolean_true
+    allowed_values: [false, true]
+    prediction_question: Will the patient's first hyperlipidemia diagnosis occur within one year?
+    timing: 11:59 PM on the discharge day
+
+  new_pancan:
+    display_name: New pancreatic cancer diagnosis
+    family: incident_diagnosis
+    label_field: boolean_value
+    target_rule: boolean_true
+    allowed_values: [false, true]
+    prediction_question: Will the patient's first pancreatic cancer diagnosis occur within one year?
+    timing: 11:59 PM on the discharge day
+
+  new_lupus:
+    display_name: New lupus diagnosis
+    family: incident_diagnosis
+    label_field: boolean_value
+    target_rule: boolean_true
+    allowed_values: [false, true]
+    prediction_question: Will the patient's first lupus diagnosis occur within one year?
+    timing: 11:59 PM on the discharge day
+
+  new_celiac:
+    display_name: New celiac disease diagnosis
+    family: incident_diagnosis
+    label_field: boolean_value
+    target_rule: boolean_true
+    allowed_values: [false, true]
+    prediction_question: Will the patient's first celiac disease diagnosis occur within one year?
+    timing: 11:59 PM on the discharge day
+
+  chexpert:
+    display_name: Abnormal chest radiograph
+    family: imaging_finding
+    label_field: integer_value
+    target_rule: integer_not_equal
+    negative_value: 8192
+    allowed_min: 0
+    allowed_max: 16383
+    prediction_question: Will the chest radiograph contain a finding rather than “No Finding”?
+    timing: 24 hours before the radiology report is recorded

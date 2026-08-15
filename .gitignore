@@ -1,0 +1,53 @@
+# Local Python environments and developer-only configuration.
+.venv/
+.env
+
+# Governed research data must never enter version control.
+*.parquet
+*.duckdb
+*.db
+*.sqlite
+*.zip
+data/raw/
+data/derived/
+outputs/private/
+outputs/governed/
+
+# Generated audit outputs may contain sensitive aggregate context and require
+# human review before any deliberate release.
+reports/generated/
+reports/private/
+
+# Model artifacts are out of scope for Phase 0 and may be very large.
+caches/
+cache/
+external/cache/
+models/
+model_weights/
+weights/
+embeddings/
+embedding_outputs/
+model_cache/
+*.safetensors
+*.gguf
+*.bin
+*.pt
+*.pth
+patient_logs/
+logs/patient-level/
+logs/slurm/
+slurm-*.out
+
+# Python packaging, test, and editor artifacts.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.cache/
+.huggingface/
+.coverage
+htmlcov/
+build/
+dist/
+.DS_Store

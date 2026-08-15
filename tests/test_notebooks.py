@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+NOTEBOOKS = {
+    "00_ehrshot_foundation.ipynb": [
+        "# 00 — EHRSHOT trusted foundation",
+        "## Governance and pinned configuration",
+        "## Environment and package versions",
+        "## Existing aggregate audit and validation",
+        "## Primary-panel aggregate counts",
+        "## Source-row versus patient-balanced prevalence",
+        "## Strict-censoring exclusions",
+        "## Machine-readable readiness checklist",
+    ],
+    "01_count_baseline.ipynb": [
+        "# 01 — Reproducible count baseline",
+        "## Scope and safeguards",
+        "## Configuration",
+        "## Run the simple count-based reference",
+        "## Validation estimates",
+        "## Artifact manifest",
+    ],
+    "02_serialization_qc.ipynb": [
+        "# 02 — Serialization QC before embeddings",
+        "## Rules and condition matrix",
+        "## Entirely synthetic timeline demonstration",
+        "## Real-data aggregate QC configuration",
+        "## Aggregate real-data distributions",
+        "## QC interpretation",
+    ],
+}
+
+
+def test_exact_source_notebook_pack_exists() -> None:
+    actual = {path.name for path in Path("notebooks").glob("*.ipynb")}
+    assert actual == set(NOTEBOOKS)
+
+
+def test_source_notebooks_are_clean_and_have_required_heading_order() -> None:
+    for name, required_headings in NOTEBOOKS.items():
+        notebook = json.loads((Path("notebooks") / name).read_text(encoding="utf-8"))
+        assert notebook["nbformat"] == 4
+        headings = [
+            line.strip()
+            for cell in notebook["cells"]
+            if cell["cell_type"] == "markdown"
+            for line in cell["source"]
+            if line.lstrip().startswith("#")
+        ]
+        positions = [headings.index(heading) for heading in required_headings]
+        assert positions == sorted(positions)
+        for cell in notebook["cells"]:
+            if cell["cell_type"] == "code":
+                assert cell["execution_count"] is None
+                assert cell["outputs"] == []
+
+
+def test_notebooks_keep_real_patient_content_out_of_source() -> None:
+    for name in NOTEBOOKS:
+        text = (Path("notebooks") / name).read_text(encoding="utf-8")
+        assert "outputs/private/executed_notebooks" not in text
+        assert "LOCAL_LLM_BASE_URL" not in text
+        assert "32B" not in text
