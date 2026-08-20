@@ -44,10 +44,16 @@ def main() -> int:
         resources={"metadata": {"path": str(repository_root)}},
         allow_errors=False,
     )
+    failed_destination = destination.with_name(f"{destination.stem}.failed{destination.suffix}")
     try:
         client.execute()
-    finally:
+    except BaseException:
+        nbformat.write(notebook, failed_destination)
+        raise
+    else:
         nbformat.write(notebook, destination)
+        if failed_destination.exists():
+            failed_destination.unlink()
     print(f"Executed {source.name} -> outputs/private/executed_notebooks/{destination.name}")
     return 0
 

@@ -11,12 +11,14 @@ import pyarrow.parquet as pq
 import pytest
 
 from scripts.review_phase1_results import load_aggregate_report
+from scripts.validate_executed_notebook import validate_executed_notebook
 from temporal_ehr.data.contracts import ContractError
 from temporal_ehr.data.task_registry import load_task_registry
 from temporal_ehr.experiments import load_experiment_panel, require_locked_panel, window_days_for_task
 from temporal_ehr.run_status import write_final, write_running
-from temporal_ehr.serialization.blocks import ClinicalEvent, exact_duplicate_key
+from temporal_ehr.serialization.blocks import ClinicalEvent
 from temporal_ehr.serialization.integrity import (
+    build_instance_hash_context,
     build_instance_manifest,
     require_aggregate_output,
     require_private_output,
@@ -70,7 +72,7 @@ def test_private_and_aggregate_paths_fail_closed(tmp_path: Path) -> None:
 def test_integrity_manifest_is_hash_only_for_private_identity() -> None:
     prediction = dt.datetime(2024, 1, 1)
     event = ClinicalEvent(prediction - dt.timedelta(days=1), "SYN/A", subject_id=123456)
-    manifest = build_instance_manifest(
+    context = build_instance_hash_context(
         dataset_revision="dataset-revision",
         config_revision="config-revision",
         model_revision="no-model",
@@ -83,8 +85,11 @@ def test_integrity_manifest_is_hash_only_for_private_identity() -> None:
         prediction_time=prediction,
         source_events=(event,),
         deduplicated_events=(event,),
-        retained_signature=(exact_duplicate_key(event),),
-        retained_block_signature=((0, (exact_duplicate_key(event),)),),
+    )
+    manifest = build_instance_manifest(
+        instance_context=context,
+        retained_content_hash="a" * 64,
+        retained_block_content_hash="b" * 64,
         rendered_text="[TIME=1_30_DAYS_BEFORE_T]\n- SYN/A",
         condition="C1_correct_compact_time",
         perturbation_seed=None,
@@ -175,7 +180,42 @@ def test_slurm_alignment_runner_declares_private_caches_and_sentinels() -> None:
         assert f"export {variable}=" in script
     assert "RUNNING" in script and "COMPLETE" in script and "FAILED" in script
     assert "03_phase1_protocol_review.ipynb" in script
+    assert "#SBATCH --time=12:00:00" in script
+    assert "RUN_SUCCEEDED=1" in script
+    assert "validate_executed_notebook.py" in script
     assert "bash -" not in script
+
+
+def test_executed_notebook_validator_rejects_incomplete_cells(tmp_path: Path) -> None:
+    complete = tmp_path / "complete.ipynb"
+    incomplete = tmp_path / "incomplete.ipynb"
+    complete.write_text(
+        json.dumps(
+            {
+                "cells": [
+                    {
+                        "cell_type": "code",
+                        "execution_count": 1,
+                        "id": "complete-cell",
+                        "metadata": {},
+                        "outputs": [],
+                        "source": ["value = 1"],
+                    }
+                ],
+                "metadata": {},
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+    incomplete.write_text(
+        complete.read_text(encoding="utf-8").replace('"execution_count": 1', '"execution_count": null'),
+        encoding="utf-8",
+    )
+    validate_executed_notebook(complete)
+    with pytest.raises(RuntimeError, match="incomplete_code_cells"):
+        validate_executed_notebook(incomplete)
 
 
 class _WhitespaceTokenizer:

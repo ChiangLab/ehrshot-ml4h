@@ -3,7 +3,7 @@
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=110G
-#SBATCH --time=04:00:00
+#SBATCH --time=12:00:00
 
 set -euo pipefail
 
@@ -18,7 +18,9 @@ STATUS_DIR="${PROJECT_ROOT}/outputs/private/run_status/${JOB_ID}"
 RUNTIME_ROOT="${PROJECT_ROOT}/outputs/private/runtime/${JOB_ID}"
 ENVIRONMENT_AUDIT="${STATUS_DIR}/environment_audit.json"
 NOTEBOOK_OUTPUT="${PROJECT_ROOT}/outputs/private/executed_notebooks/03_phase1_protocol_review.ipynb"
+REPORT_PATH="${PROJECT_ROOT}/reports/generated/phase1_protocol_review/protocol_alignment.json"
 PYTHON="${PROJECT_ROOT}/.venv/bin/python"
+RUN_SUCCEEDED=0
 
 for required_file in \
   "${EVENT_PATH}" \
@@ -65,8 +67,10 @@ finalize_status() {
   exit_status=$?
   trap - EXIT
   final_state="FAILED"
-  if [[ "${exit_status}" -eq 0 ]]; then
+  if [[ "${exit_status}" -eq 0 && "${RUN_SUCCEEDED}" -eq 1 ]]; then
     final_state="COMPLETE"
+  elif [[ "${exit_status}" -eq 0 ]]; then
+    exit_status=1
   fi
   ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   PYTHONPATH=src "${PYTHON}" scripts/write_run_status.py "${final_state}" \
@@ -109,3 +113,16 @@ srun \
   "${PYTHON}" scripts/execute_notebook.py \
   notebooks/03_phase1_protocol_review.ipynb \
   "${NOTEBOOK_OUTPUT}"
+
+if [[ ! -s "${REPORT_PATH}" || ! "${REPORT_PATH}" -nt "${STATUS_DIR}/RUNNING.json" ]]; then
+  echo "Notebook 03 did not produce a new aggregate protocol-alignment report." >&2
+  exit 1
+fi
+if [[ ! -s "${NOTEBOOK_OUTPUT}" || ! "${NOTEBOOK_OUTPUT}" -nt "${STATUS_DIR}/RUNNING.json" ]]; then
+  echo "Notebook 03 did not produce a new executed notebook." >&2
+  exit 1
+fi
+
+PYTHONPATH=src "${PYTHON}" scripts/validate_executed_notebook.py "${NOTEBOOK_OUTPUT}"
+PYTHONPATH=src "${PYTHON}" scripts/review_phase1_results.py --report "${REPORT_PATH}"
+RUN_SUCCEEDED=1

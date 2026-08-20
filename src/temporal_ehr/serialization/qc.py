@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -28,12 +29,14 @@ from temporal_ehr.serialization.conditions import (
     build_full_history_conditions,
 )
 from temporal_ehr.serialization.integrity import (
+    build_instance_hash_context,
     build_instance_manifest,
     require_aggregate_output,
     require_private_output,
     stable_hash,
 )
 from temporal_ehr.serialization.packing import (
+    PackingCache,
     Tokenizer,
     content_matched_primary,
     independent_operational,
@@ -106,6 +109,7 @@ def run_protocol_alignment_qc(
     report_path: Path = Path("reports/generated/phase1_protocol_review/protocol_alignment.json"),
     private_manifest_path: Path = Path("outputs/private/manifests/phase1_protocol_alignment.jsonl"),
     repository_root: Path | None = None,
+    progress_interval: int = 250,
 ) -> dict[str, Any]:
     """Run exact-time serializer QC without embeddings or test-set modeling."""
     if tokenizer is None:
@@ -116,6 +120,8 @@ def run_protocol_alignment_qc(
         raise ValueError("Protocol review requires the prespecified 4096 and 8192 token budgets.")
     if tuple(c3_seeds) != tuple(registry["serialization"]["c3_perturbation_seeds"]):
         raise ValueError("C3 seeds must match configs/tasks.yaml exactly.")
+    if progress_interval < 0:
+        raise ValueError("progress_interval cannot be negative.")
 
     root = (repository_root or Path.cwd()).resolve()
     destination = require_aggregate_output(report_path, root)
@@ -140,12 +146,28 @@ def run_protocol_alignment_qc(
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     content_match_failures = 0
     instance_count = 0
+    started = time.monotonic()
 
     with manifest_path.open("w", encoding="utf-8") as manifest_handle:
         for instance in iter_strict_histories(event_path, cohort_path, tasks=tasks, splits=splits):
             instance_count += 1
             source_events = tuple(event_from_mapping(row) for row in instance.events)
             events, duplicate_count = deduplicate_events(source_events)
+            packing_cache = PackingCache(descriptions, tokenizer)
+            instance_context = build_instance_hash_context(
+                dataset_revision=dataset_revision,
+                config_revision=config_revision,
+                model_revision="NO_EMBEDDING_MODEL_USED_IN_PHASE2",
+                tokenizer_revision=tokenizer_revision,
+                task=instance.task,
+                split=instance.split,
+                outcome=instance.target,
+                subject_id=instance.subject_id,
+                instance_key=instance.instance_key,
+                prediction_time=instance.prediction_time,
+                source_events=source_events,
+                deduplicated_events=events,
+            )
             duplicate_group = duplicate_groups[(instance.task, instance.split)]
             duplicate_group["source_event_count"].append(len(source_events))
             duplicate_group["exact_duplicates_removed"].append(duplicate_count)
@@ -183,12 +205,25 @@ def run_protocol_alignment_qc(
                     if final.label_window_index != retained[-1].window_index:
                         raise RuntimeError("Information-reduction baseline lost the correct final-window label.")
 
+            base_conditions: dict[str, Any] | None = None
             for seed in c3_seeds:
-                conditions = build_full_history_conditions(
+                seed_conditions = build_full_history_conditions(
                     primary_windows,
                     seed=int(seed),
                     instance_key=instance.instance_key,
                 )
+                if base_conditions is None:
+                    conditions = seed_conditions
+                    base_conditions = conditions
+                else:
+                    conditions = {
+                        name: (
+                            seed_conditions[name]
+                            if name == "C3_shuffled_earlier_time_labels"
+                            else base_conditions[name]
+                        )
+                        for name in FULL_HISTORY_CONDITIONS
+                    }
                 assert_condition_invariants(conditions)
                 assert_shared_instance_metadata(
                     {
@@ -212,7 +247,11 @@ def run_protocol_alignment_qc(
 
                 for budget in token_budgets:
                     matched = content_matched_primary(
-                        conditions, descriptions, tokenizer=tokenizer, budget=int(budget)
+                        conditions,
+                        descriptions,
+                        tokenizer=tokenizer,
+                        budget=int(budget),
+                        cache=packing_cache,
                     )
                     signatures = {history.retained_signature for history in matched.histories.values()}
                     block_signatures = {
@@ -221,10 +260,17 @@ def run_protocol_alignment_qc(
                     if len(signatures) != 1 or len(block_signatures) != 1:
                         content_match_failures += 1
                     operational = independent_operational(
-                        conditions, descriptions, tokenizer=tokenizer, budget=int(budget)
+                        conditions,
+                        descriptions,
+                        tokenizer=tokenizer,
+                        budget=int(budget),
+                        cache=packing_cache,
                     )
                     manifests: list[dict[str, Any]] = []
                     matched_c0_tokens = matched.histories["C0_order_only"].token_count
+                    reference_history = matched.histories["C0_order_only"]
+                    retained_content_hash = stable_hash(reference_history.retained_signature)
+                    retained_block_content_hash = stable_hash(reference_history.retained_block_signature)
                     for name, history in matched.histories.items():
                         group = matched_groups[(instance.task, instance.split, name, int(seed), int(budget))]
                         group["content_match_success"].append(int(len(signatures) == 1))
@@ -237,20 +283,9 @@ def run_protocol_alignment_qc(
                         group["token_count"].append(history.token_count)
                         group["time_label_token_cost_vs_C0"].append(history.token_count - matched_c0_tokens)
                         manifest = build_instance_manifest(
-                            dataset_revision=dataset_revision,
-                            config_revision=config_revision,
-                            model_revision="NO_EMBEDDING_MODEL_USED_IN_PHASE2",
-                            tokenizer_revision=tokenizer_revision,
-                            task=instance.task,
-                            split=instance.split,
-                            outcome=instance.target,
-                            subject_id=instance.subject_id,
-                            instance_key=instance.instance_key,
-                            prediction_time=instance.prediction_time,
-                            source_events=source_events,
-                            deduplicated_events=events,
-                            retained_signature=history.retained_signature,
-                            retained_block_signature=history.retained_block_signature,
+                            instance_context=instance_context,
+                            retained_content_hash=retained_content_hash,
+                            retained_block_content_hash=retained_block_content_hash,
                             rendered_text=history.text,
                             condition=name,
                             perturbation_seed=conditions[name].perturbation_seed,
@@ -264,7 +299,7 @@ def run_protocol_alignment_qc(
                         "patient_hash",
                         "prediction_instance_hash",
                         "outcome_hash",
-                        "retained_exact_event_hashes",
+                        "retained_content_hash",
                         "retained_block_content_hash",
                     )
                     identities = {
@@ -282,6 +317,14 @@ def run_protocol_alignment_qc(
                         group["token_count"].append(history.token_count)
                         group["events_displaced_vs_C0"].append(operational.displaced_events[name])
                         group["token_count_delta_vs_C0"].append(history.token_count - operational_c0_tokens)
+
+            if progress_interval and instance_count % progress_interval == 0:
+                elapsed_minutes = (time.monotonic() - started) / 60.0
+                print(
+                    f"Protocol QC progress: {instance_count:,} instances processed "
+                    f"in {elapsed_minutes:.1f} minutes",
+                    flush=True,
+                )
 
     panel_paths = {
         "pilot_three_task": root / "configs/experiments/pilot_three_task.yaml",

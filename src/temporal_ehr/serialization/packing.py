@@ -44,6 +44,44 @@ class IndependentPacking:
     displaced_events: dict[str, int]
 
 
+@dataclass(frozen=True)
+class _EvaluatedSuffix:
+    condition: TemporalCondition
+    text: str
+    token_count: int
+    retained_signature: tuple[tuple[object, ...], ...]
+    retained_block_signature: tuple[tuple[int, tuple[tuple[object, ...], ...]], ...]
+
+
+class PackingCache:
+    """Per-instance cache for exact render/tokenizer evaluations."""
+
+    def __init__(self, descriptions: Mapping[str, str], tokenizer: Tokenizer) -> None:
+        self.descriptions = descriptions
+        self.tokenizer = tokenizer
+        self._evaluations: dict[tuple[int, int], _EvaluatedSuffix] = {}
+        self._condition_references: dict[int, TemporalCondition] = {}
+
+    def evaluate(self, condition: TemporalCondition, event_count: int) -> _EvaluatedSuffix:
+        condition_id = id(condition)
+        existing = self._condition_references.setdefault(condition_id, condition)
+        if existing is not condition:
+            raise RuntimeError("Packing-cache condition identity collision.")
+        key = (condition_id, event_count)
+        if key not in self._evaluations:
+            suffix = _suffix_condition(condition, event_count)
+            text = render_condition(suffix, self.descriptions) if suffix.blocks else ""
+            blocks = tuple(item.block for item in suffix.blocks)
+            self._evaluations[key] = _EvaluatedSuffix(
+                suffix,
+                text,
+                _count(self.tokenizer, text) if text else 0,
+                clinical_signature(blocks),
+                block_content_signature(blocks),
+            )
+        return self._evaluations[key]
+
+
 def load_qwen_tokenizer(model_path: Path) -> Tokenizer:
     """Load an already-downloaded tokenizer without network access."""
     try:
@@ -97,28 +135,22 @@ def _suffix_condition(condition: TemporalCondition, event_count: int) -> Tempora
     )
 
 
-def _packed_from_condition(
-    condition: TemporalCondition,
-    descriptions: Mapping[str, str],
-    tokenizer: Tokenizer,
+def _packed_from_evaluation(
+    evaluation: _EvaluatedSuffix,
     budget: int,
     total_events: int,
 ) -> PackedHistory:
-    text = render_condition(condition, descriptions) if condition.blocks else ""
-    tokens = _count(tokenizer, text) if text else 0
-    signature = clinical_signature(tuple(item.block for item in condition.blocks))
-    block_signature = block_content_signature(tuple(item.block for item in condition.blocks))
-    if tokens > budget:
+    if evaluation.token_count > budget:
         raise ContractError("Packing produced text over the exact tokenizer budget.")
     return PackedHistory(
-        text,
-        tokens,
+        evaluation.text,
+        evaluation.token_count,
         budget,
-        len(signature),
+        len(evaluation.retained_signature),
         total_events,
-        len(signature) < total_events,
-        signature,
-        block_signature,
+        len(evaluation.retained_signature) < total_events,
+        evaluation.retained_signature,
+        evaluation.retained_block_signature,
     )
 
 
@@ -128,24 +160,26 @@ def pack_history(
     *,
     tokenizer: Tokenizer,
     budget: int = 4_096,
+    cache: PackingCache | None = None,
 ) -> PackedHistory:
     """Independently retain the largest recent event suffix fitting one condition."""
     if not condition.eligible:
         raise ValueError(f"Cannot pack ineligible condition: {condition.ineligibility_reason}")
     if budget < 1:
         raise ValueError("Token budget must be positive.")
+    packing_cache = cache or PackingCache(descriptions, tokenizer)
+    if packing_cache.tokenizer is not tokenizer or packing_cache.descriptions is not descriptions:
+        raise ValueError("PackingCache must use the same tokenizer and descriptions objects.")
     total = sum(len(item.block.events) for item in condition.blocks)
     low, high, best = 0, total, 0
     while low <= high:
         midpoint = (low + high) // 2
-        candidate = _suffix_condition(condition, midpoint)
-        text = render_condition(candidate, descriptions) if candidate.blocks else ""
-        if _count(tokenizer, text) <= budget:
+        if packing_cache.evaluate(condition, midpoint).token_count <= budget:
             best = midpoint
             low = midpoint + 1
         else:
             high = midpoint - 1
-    return _packed_from_condition(_suffix_condition(condition, best), descriptions, tokenizer, budget, total)
+    return _packed_from_evaluation(packing_cache.evaluate(condition, best), budget, total)
 
 
 def content_matched_primary(
@@ -154,6 +188,7 @@ def content_matched_primary(
     *,
     tokenizer: Tokenizer,
     budget: int,
+    cache: PackingCache | None = None,
 ) -> ContentMatchedPacking:
     """Pack one shared recent suffix sized by the most expensive eligible condition."""
     eligible = {name: condition for name, condition in conditions.items() if condition.eligible}
@@ -163,23 +198,20 @@ def content_matched_primary(
     if len(totals) != 1:
         raise ContractError("Temporal conditions do not contain the same number of source events.")
     total = totals.pop()
-    low, high, best = 0, total, 0
-    while low <= high:
-        midpoint = (low + high) // 2
-        candidates = (_suffix_condition(condition, midpoint) for condition in eligible.values())
-        fits = all(
-            _count(tokenizer, render_condition(item, descriptions) if item.blocks else "") <= budget
-            for item in candidates
-        )
-        if fits:
-            best = midpoint
-            low = midpoint + 1
-        else:
-            high = midpoint - 1
+    packing_cache = cache or PackingCache(descriptions, tokenizer)
+    independent_limits = {
+        name: pack_history(
+            condition,
+            descriptions,
+            tokenizer=tokenizer,
+            budget=budget,
+            cache=packing_cache,
+        ).included_event_count
+        for name, condition in eligible.items()
+    }
+    best = min(independent_limits.values())
     histories = {
-        name: _packed_from_condition(
-            _suffix_condition(condition, best), descriptions, tokenizer, budget, total
-        )
+        name: _packed_from_evaluation(packing_cache.evaluate(condition, best), budget, total)
         for name, condition in eligible.items()
     }
     signatures = {history.retained_signature for history in histories.values()}
@@ -195,10 +227,17 @@ def independent_operational(
     *,
     tokenizer: Tokenizer,
     budget: int,
+    cache: PackingCache | None = None,
 ) -> IndependentPacking:
     """Independently pack eligible conditions and quantify evidence displacement from C0."""
     histories = {
-        name: pack_history(condition, descriptions, tokenizer=tokenizer, budget=budget)
+        name: pack_history(
+            condition,
+            descriptions,
+            tokenizer=tokenizer,
+            budget=budget,
+            cache=cache,
+        )
         for name, condition in conditions.items()
         if condition.eligible
     }

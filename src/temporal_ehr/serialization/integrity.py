@@ -38,7 +38,7 @@ def event_sequence_hash(events: Sequence[ClinicalEvent]) -> str:
     return stable_hash([exact_duplicate_key(event) for event in events])
 
 
-def build_instance_manifest(
+def build_instance_hash_context(
     *,
     dataset_revision: str,
     config_revision: str,
@@ -52,15 +52,8 @@ def build_instance_manifest(
     prediction_time: dt.datetime,
     source_events: Sequence[ClinicalEvent],
     deduplicated_events: Sequence[ClinicalEvent],
-    retained_signature: Sequence[tuple[object, ...]],
-    retained_block_signature: Sequence[tuple[object, ...]],
-    rendered_text: str,
-    condition: str,
-    perturbation_seed: int | None,
-    comparison_seed: int,
-    token_budget: int,
 ) -> dict[str, Any]:
-    """Build one hash-only manifest record for the governed private output tree."""
+    """Hash invariant revisions, identity, and source content once per instance."""
     return {
         "manifest_version": 1,
         "dataset_revision_hash": stable_hash(dataset_revision),
@@ -74,9 +67,25 @@ def build_instance_manifest(
         "prediction_instance_hash": stable_hash((instance_key, prediction_time)),
         "source_events_hash": event_sequence_hash(source_events),
         "deduplicated_events_hash": event_sequence_hash(deduplicated_events),
-        "retained_content_hash": stable_hash(retained_signature),
-        "retained_exact_event_hashes": [stable_hash(item) for item in retained_signature],
-        "retained_block_content_hash": stable_hash(retained_block_signature),
+    }
+
+
+def build_instance_manifest(
+    *,
+    instance_context: Mapping[str, Any],
+    retained_content_hash: str,
+    retained_block_content_hash: str,
+    rendered_text: str,
+    condition: str,
+    perturbation_seed: int | None,
+    comparison_seed: int,
+    token_budget: int,
+) -> dict[str, Any]:
+    """Build one compact condition record from a precomputed hash-only context."""
+    return {
+        **instance_context,
+        "retained_content_hash": retained_content_hash,
+        "retained_block_content_hash": retained_block_content_hash,
         "rendered_text_hash": stable_hash(rendered_text),
         "temporal_condition": condition,
         "perturbation_seed": perturbation_seed,

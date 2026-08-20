@@ -22,6 +22,7 @@ from temporal_ehr.serialization.conditions import (
     build_full_history_conditions,
 )
 from temporal_ehr.serialization.packing import (
+    PackingCache,
     content_matched_primary,
     independent_operational,
     pack_history,
@@ -41,6 +42,15 @@ class CharacterTokenizer:
     def encode(self, text: str, *, add_special_tokens: bool = False) -> list[int]:
         del add_special_tokens
         return list(range(len(text)))
+
+
+class CountingWhitespaceTokenizer(WhitespaceTokenizer):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def encode(self, text: str, *, add_special_tokens: bool = False) -> list[int]:
+        self.calls += 1
+        return super().encode(text, add_special_tokens=add_special_tokens)
 
 
 def _window(index: int, prediction: dt.datetime, count: int = 1) -> PredictionWindow:
@@ -194,6 +204,31 @@ def test_independent_packing_reports_time_token_displacement() -> None:
         assert result.displaced_events[name] == max(
             0, result.histories["C0_order_only"].included_event_count - history.included_event_count
         )
+
+
+def test_shared_packing_cache_avoids_duplicate_policy_tokenization() -> None:
+    prediction = dt.datetime(2024, 1, 1)
+    descriptions: dict[str, str] = {}
+    tokenizer = CountingWhitespaceTokenizer()
+    conditions = build_full_history_conditions(
+        _irregular_windows(prediction, count=800), seed=SEEDS[0], instance_key="cached-packing"
+    )
+    cache = PackingCache(descriptions, tokenizer)
+    content_matched_primary(
+        conditions,
+        descriptions,
+        tokenizer=tokenizer,
+        budget=4096,
+        cache=cache,
+    )
+    independent_operational(
+        conditions,
+        descriptions,
+        tokenizer=tokenizer,
+        budget=4096,
+        cache=cache,
+    )
+    assert tokenizer.calls < 70
 
 
 def test_information_reduction_baselines_preserve_order_and_correct_final_window() -> None:

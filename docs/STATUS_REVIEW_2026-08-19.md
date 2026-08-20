@@ -47,6 +47,11 @@ calibration; it is not a reason by itself to change the task.
 - M1 full temporal matrix, M2 interim-summary model, or M3 per-window sequence model
 - frozen test-set evaluation
 
+Alignment job 405 reached its four-hour allocation on 2026-08-20 before writing
+`protocol_alignment.json`. Its partial executed notebook is not a valid result. A corrective runner
+now requests the available 12-hour limit, reuses exact tokenizer evaluations across policies and
+seeds, and requires both the aggregate report and a fully executed notebook before writing COMPLETE.
+
 ## Important protocol decision for Jeff
 
 The current code uses the pilot panel:
