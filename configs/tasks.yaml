@@ -1,5 +1,15 @@
 version: 1
 
+serialization:
+  family_window_days:
+    laboratory_result: 30
+    imaging_finding: 30
+    operational_outcome: 30
+    incident_diagnosis: 90
+  c3_perturbation_seeds: [20260815, 20260816, 20260817]
+  token_budgets: [4096, 8192]
+  minimum_report_group_size: 20
+
 # MEDS split names in the downloaded EHRSHOT release and the public names used
 # in this project. Patient membership is never re-randomized.
 split_mapping:

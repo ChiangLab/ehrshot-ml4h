@@ -3,8 +3,8 @@
 This repository implements **Does Time Earn Its Tokens? Recurrence, Temporal Alignment, and
 Context Cost in Frozen Longitudinal EHR Embeddings**. The current code audits the real downloaded
 EHRSHOT event table, validates all 15 task-label files and canonical patient splits, selects a
-patient-balanced three-task cohort, audits strict prediction-time censoring, and bootstraps pinned
-Qwen3 embedding checkpoints on the DGX environment.
+patient-balanced three-task pilot cohort, audits strict prediction-time censoring, and implements
+protocol-aligned prediction-relative serialization before any embedding experiment.
 
 Repository code is MIT-licensed. That license does not apply to EHRSHOT data or other governed
 assets, which remain subject to their official DUA and redistribution restrictions.
@@ -104,6 +104,11 @@ Phase 1 provides a simple count-based reference followed by frozen-serializer QC
 as a released EHRSHOT baseline reproduction. The test split remains untouched until the
 representation, model, and statistical-analysis plan are frozen.
 
+The primary serializer uses exact half-open prediction-relative 30/90-day windows, removes only
+seven-field exact duplicates, and renders range labels without calendar dates. See
+[the serialization protocol](docs/SERIALIZATION_PROTOCOL.md) and
+[the deviation register](docs/PROTOCOL_DEVIATIONS.md).
+
 ## Phase 1 notebook pack
 
 Install the headless notebook, modeling, and local-tokenizer dependencies without downloading any
@@ -134,6 +139,28 @@ sbatch --export=ALL scripts/slurm/10_run_phase1_notebooks.sbatch
 The runner never overwrites source notebooks. Count matrices, models, predictions, executed
 notebooks, and generated aggregate reports remain ignored pending review. Notebook model selection
 fails closed on any request for the test split.
+
+## Phase 2 protocol review
+
+The existing three-task cohort remains explicitly marked `PILOT`; the four-task written-protocol
+panel remains `PROPOSED`; and `configs/experiments/locked_panel.yaml` remains `PENDING`. Downstream
+embedding training must call the lock gate and cannot proceed until one reviewed panel is marked
+`LOCKED` after confirmation with Jeff.
+
+On the DGX, run only the privacy-safe aggregate review notebook with the local tokenizer (no model
+forward pass):
+
+```bash
+export EHRSHOT_COHORT_PATH="$PWD/outputs/private/cohorts/primary_panel.parquet"
+sbatch --export=ALL scripts/slurm/11_run_phase1_alignment.sbatch
+```
+
+The job creates a private environment audit, hash-only instance manifests, an executed Notebook 03,
+and atomic job-status sentinels. Inspect only the aggregate report with:
+
+```bash
+.venv/bin/python scripts/review_phase1_results.py
+```
 
 ## Execution and governance
 

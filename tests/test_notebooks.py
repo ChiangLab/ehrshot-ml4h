@@ -30,6 +30,16 @@ NOTEBOOKS = {
         "## Aggregate real-data distributions",
         "## QC interpretation",
     ],
+    "03_phase1_protocol_review.ipynb": [
+        "# 03 — Phase 1 protocol review",
+        "## Protocol and unresolved decisions",
+        "## Entirely synthetic C0-C3 demonstration",
+        "## Governed aggregate review configuration",
+        "## Duplicate removal and prediction-relative windows",
+        "## Temporal-condition eligibility",
+        "## Packing and information-reduction baselines",
+        "## Machine-readable Phase 3 checklist",
+    ],
 }
 
 

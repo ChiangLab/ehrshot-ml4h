@@ -1,0 +1,11 @@
+version: 1
+name: phase1_three_task_pilot
+status: PILOT
+decision_owner: William Delery and Jeff
+tasks:
+  - lab_anemia
+  - new_acutemi
+  - guo_los
+notes: >-
+  This is the panel used by the existing governed Phase 1 cohort and count baseline.
+  It is not the locked primary experiment panel.

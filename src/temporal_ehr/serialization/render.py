@@ -40,12 +40,17 @@ def render_event(event: ClinicalEvent, descriptions: Mapping[str, str]) -> str:
 
 
 def render_labeled_block(block: LabeledBlock, descriptions: Mapping[str, str]) -> tuple[str, ...]:
-    label = "[BLOCK]" if block.time_label_days is None else f"[TIME {block.time_label_days} DAYS BEFORE]"
+    if block.label_window_index is None:
+        label = "[CLINICAL_BLOCK]"
+    else:
+        start = block.label_window_index * block.block.window_days + 1
+        end = (block.label_window_index + 1) * block.block.window_days
+        label = f"[TIME={start}_{end}_DAYS_BEFORE_T]"
     return (label, *(f"- {render_event(event, descriptions)}" for event in block.block.events))
 
 
 def render_condition(condition: TemporalCondition, descriptions: Mapping[str, str]) -> str:
-    """Render an eligible condition; callers must never display real histories."""
+    """Render an eligible condition without dates, timestamps, or patient identifiers."""
     if not condition.eligible:
         raise ValueError(f"Condition {condition.name} is ineligible: {condition.ineligibility_reason}")
     return "\n".join(line for block in condition.blocks for line in render_labeled_block(block, descriptions))

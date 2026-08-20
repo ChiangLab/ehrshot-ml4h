@@ -1,4 +1,4 @@
-"""Deterministic recent-first packing under an exact tokenizer budget."""
+"""Content-matched primary and independently packed operational policies."""
 
 from __future__ import annotations
 
@@ -7,8 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from temporal_ehr.serialization.conditions import TemporalCondition
-from temporal_ehr.serialization.render import render_labeled_block
+from temporal_ehr.data.contracts import ContractError
+from temporal_ehr.serialization.blocks import PredictionWindow, block_content_signature, clinical_signature
+from temporal_ehr.serialization.conditions import LabeledBlock, TemporalCondition
+from temporal_ehr.serialization.render import render_condition
 
 
 class Tokenizer(Protocol):
@@ -23,10 +25,27 @@ class PackedHistory:
     included_event_count: int
     total_event_count: int
     truncated: bool
+    retained_signature: tuple[tuple[object, ...], ...]
+    retained_block_signature: tuple[tuple[int, tuple[tuple[object, ...], ...]], ...]
+
+
+@dataclass(frozen=True)
+class ContentMatchedPacking:
+    policy: str
+    budget: int
+    histories: dict[str, PackedHistory]
+
+
+@dataclass(frozen=True)
+class IndependentPacking:
+    policy: str
+    budget: int
+    histories: dict[str, PackedHistory]
+    displaced_events: dict[str, int]
 
 
 def load_qwen_tokenizer(model_path: Path) -> Tokenizer:
-    """Load an already-downloaded tokenizer; this function never downloads a model."""
+    """Load an already-downloaded tokenizer without network access."""
     try:
         from transformers import AutoTokenizer
     except ImportError as exc:
@@ -37,18 +56,70 @@ def load_qwen_tokenizer(model_path: Path) -> Tokenizer:
     if not model_path.exists():
         raise RuntimeError(
             "Real-data packing requires an already-downloaded Qwen tokenizer at QWEN_EMBEDDING_PATH; "
-            "model download is intentionally outside this notebook pack."
+            "model download is intentionally outside this review."
         )
     try:
         return AutoTokenizer.from_pretrained(model_path, local_files_only=True)
     except Exception as exc:
         raise RuntimeError(
-            "Unable to load the local Qwen tokenizer. Verify QWEN_EMBEDDING_PATH and the pinned model assets."
+            "Unable to load the local Qwen tokenizer. Verify QWEN_EMBEDDING_PATH and pinned tokenizer assets."
         ) from exc
 
 
 def _count(tokenizer: Tokenizer, text: str) -> int:
     return len(tokenizer.encode(text, add_special_tokens=False))
+
+
+def _suffix_condition(condition: TemporalCondition, event_count: int) -> TemporalCondition:
+    if event_count < 0:
+        raise ValueError("event_count cannot be negative.")
+    total = sum(len(item.block.events) for item in condition.blocks)
+    remaining = min(event_count, total)
+    kept_reversed: list[LabeledBlock] = []
+    for item in reversed(condition.blocks):
+        if remaining <= 0:
+            break
+        keep = min(remaining, len(item.block.events))
+        events = item.block.events[-keep:]
+        kept_reversed.append(
+            LabeledBlock(
+                PredictionWindow(item.block.window_index, item.block.window_days, events),
+                item.label_window_index,
+            )
+        )
+        remaining -= keep
+    return TemporalCondition(
+        condition.name,
+        tuple(reversed(kept_reversed)),
+        condition.eligible,
+        condition.perturbation_seed,
+        condition.ineligibility_reason,
+    )
+
+
+def _packed_from_condition(
+    condition: TemporalCondition,
+    descriptions: Mapping[str, str],
+    tokenizer: Tokenizer,
+    budget: int,
+    total_events: int,
+) -> PackedHistory:
+    text = render_condition(condition, descriptions) if condition.blocks else ""
+    tokens = _count(tokenizer, text) if text else 0
+    signature = clinical_signature(tuple(item.block for item in condition.blocks))
+    block_signature = block_content_signature(tuple(item.block for item in condition.blocks))
+    if tokens > budget:
+        raise ContractError("Packing produced text over the exact tokenizer budget.")
+    return PackedHistory(
+        text,
+        tokens,
+        budget,
+        len(signature),
+        total_events,
+        len(signature) < total_events,
+        signature,
+        block_signature,
+    )
 
 
 def pack_history(
@@ -58,44 +129,89 @@ def pack_history(
     tokenizer: Tokenizer,
     budget: int = 4_096,
 ) -> PackedHistory:
-    """Keep the newest complete content that fits, with exact deterministic tokenization."""
+    """Independently retain the largest recent event suffix fitting one condition."""
     if not condition.eligible:
         raise ValueError(f"Cannot pack ineligible condition: {condition.ineligibility_reason}")
     if budget < 1:
         raise ValueError("Token budget must be positive.")
-    accepted: list[str] = []
-    included_events = 0
-    total_events = sum(len(item.block.events) for item in condition.blocks)
-    for labeled_block in reversed(condition.blocks):
-        lines = list(render_labeled_block(labeled_block, descriptions))
-        candidate = "\n".join([*lines, *accepted])
-        if _count(tokenizer, candidate) <= budget:
-            accepted = [*lines, *accepted]
-            included_events += len(labeled_block.block.events)
-            continue
+    total = sum(len(item.block.events) for item in condition.blocks)
+    low, high, best = 0, total, 0
+    while low <= high:
+        midpoint = (low + high) // 2
+        candidate = _suffix_condition(condition, midpoint)
+        text = render_condition(candidate, descriptions) if candidate.blocks else ""
+        if _count(tokenizer, text) <= budget:
+            best = midpoint
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    return _packed_from_condition(_suffix_condition(condition, best), descriptions, tokenizer, budget, total)
 
-        header = lines[0]
-        event_lines = lines[1:]
-        low, high = 1, len(event_lines)
-        best: list[str] | None = None
-        while low <= high:
-            midpoint = (low + high) // 2
-            partial = [header, *event_lines[-midpoint:]]
-            partial_candidate = "\n".join([*partial, *accepted])
-            if _count(tokenizer, partial_candidate) <= budget:
-                best = partial
-                low = midpoint + 1
-            else:
-                high = midpoint - 1
-        if best is not None:
-            accepted = [*best, *accepted]
-            included_events += max(0, len(best) - 1)
-        break
-    text = "\n".join(accepted)
-    token_count = _count(tokenizer, text) if text else 0
-    return PackedHistory(text, token_count, budget, included_events, total_events, included_events < total_events)
+
+def content_matched_primary(
+    conditions: Mapping[str, TemporalCondition],
+    descriptions: Mapping[str, str],
+    *,
+    tokenizer: Tokenizer,
+    budget: int,
+) -> ContentMatchedPacking:
+    """Pack one shared recent suffix sized by the most expensive eligible condition."""
+    eligible = {name: condition for name, condition in conditions.items() if condition.eligible}
+    if not eligible:
+        raise ContractError("No temporal condition is eligible for content matching.")
+    totals = {sum(len(item.block.events) for item in condition.blocks) for condition in eligible.values()}
+    if len(totals) != 1:
+        raise ContractError("Temporal conditions do not contain the same number of source events.")
+    total = totals.pop()
+    low, high, best = 0, total, 0
+    while low <= high:
+        midpoint = (low + high) // 2
+        candidates = (_suffix_condition(condition, midpoint) for condition in eligible.values())
+        fits = all(
+            _count(tokenizer, render_condition(item, descriptions) if item.blocks else "") <= budget
+            for item in candidates
+        )
+        if fits:
+            best = midpoint
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    histories = {
+        name: _packed_from_condition(
+            _suffix_condition(condition, best), descriptions, tokenizer, budget, total
+        )
+        for name, condition in eligible.items()
+    }
+    signatures = {history.retained_signature for history in histories.values()}
+    block_signatures = {history.retained_block_signature for history in histories.values()}
+    if len(signatures) != 1 or len(block_signatures) != 1:
+        raise ContractError("content_matched_primary retained different clinical content across conditions.")
+    return ContentMatchedPacking("content_matched_primary", budget, histories)
+
+
+def independent_operational(
+    conditions: Mapping[str, TemporalCondition],
+    descriptions: Mapping[str, str],
+    *,
+    tokenizer: Tokenizer,
+    budget: int,
+) -> IndependentPacking:
+    """Independently pack eligible conditions and quantify evidence displacement from C0."""
+    histories = {
+        name: pack_history(condition, descriptions, tokenizer=tokenizer, budget=budget)
+        for name, condition in conditions.items()
+        if condition.eligible
+    }
+    c0 = histories.get("C0_order_only")
+    if c0 is None:
+        raise ContractError("C0_order_only must be eligible for operational packing.")
+    displacement = {
+        name: max(0, c0.included_event_count - history.included_event_count)
+        for name, history in histories.items()
+    }
+    return IndependentPacking("independent_operational", budget, histories, displacement)
 
 
 def whitespace_estimate_for_synthetic_demo(text: str) -> int:
-    """Return a whitespace estimate; this is explicitly not a tokenizer token count."""
+    """Return a whitespace estimate; this is explicitly not a Qwen token count."""
     return len(text.split())

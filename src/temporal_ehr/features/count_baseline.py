@@ -130,7 +130,7 @@ def build_sparse_counts(
             ORDER BY c.instance_key, v.feature_index
             """,
             [str(cohort_path), str(event_path), task, split],
-        ).fetch_record_batch(rows_per_batch=batch_size)
+        ).to_arrow_reader(batch_size=batch_size)
         row_parts: list[np.ndarray] = []
         column_parts: list[np.ndarray] = []
         count_parts: list[np.ndarray] = []

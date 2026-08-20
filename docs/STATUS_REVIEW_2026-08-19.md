@@ -5,8 +5,8 @@ Status date: 2026-08-19
 ## Current conclusion
 
 The repository has a sound, privacy-conscious Phase 1 implementation and a useful three-task pilot.
-It is not ready for the primary embedding matrix until the final task panel is locked and several
-serializer details are aligned with the final protocol.
+Phase 2 serializer alignment is implemented locally, but the primary embedding matrix remains
+blocked until the final task panel is locked and the aggregate DGX protocol review passes.
 
 ## Completed
 
@@ -14,12 +14,12 @@ serializer details are aligned with the final protocol.
 - label and canonical split validation
 - deterministic one-row-per-patient cohort for the current three-task pilot
 - strict pre-prediction censoring
-- three clean, headlessly executable source notebooks
+- four clean, headlessly executable source notebooks
 - prevalence and count-based validation references for the pilot
-- serializer and temporal-condition prototype
+- protocol-aligned serializer, temporal controls, packing policies, and private integrity manifests
 - DGX execution of notebooks 00, 01, and 02 to private output files
-- 40 passing tests, Ruff pass, shell syntax pass, and pre-push safety pass at the last local review
-- clean Git working tree at commit `bc5a746`, synchronized with `origin/main` at the last review
+- 52 passing synthetic/local tests, Ruff pass, shell syntax pass, and pre-push safety pass in Phase 2
+- Phase 1's DGX results remain associated with commit `bc5a746`; Phase 2 requires a new DGX audit run
 
 ## Current validation-only pilot results
 
@@ -40,12 +40,8 @@ calibration; it is not a reason by itself to change the task.
 - formal verification of DGX job 404's scheduler state and exit code
 - retrieval/review of notebook 02's aggregate serialization-QC report from the DGX
 - agreement on the final task panel
-- protocol-aligned 30/90-day primary blocks
-- exact duplicate removal
-- explicit compact-time range labels
-- primary content-matched packing across C0-C3
-- three fixed C3 perturbation seeds and strengthened C2/C3 invariants
-- latest-window and latest-code embedding baselines
+- DGX execution and review of Notebook 03's protocol-alignment aggregates
+- task-panel lock after review with Jeff
 - Qwen embedding throughput benchmark
 - any Qwen embedding generation or embedding-model results
 - M1 full temporal matrix, M2 interim-summary model, or M3 per-window sequence model
@@ -159,8 +155,8 @@ Questions to resolve with Jeff:
 
 ## Next sequence
 
-1. Give Codex `prompts/02_AUDIT_PHASE1_AND_ALIGN_PROTOCOL.md`.
-2. Review its diff, tests, deviation log, and aggregate notebook-03 output.
+1. Run `scripts/slurm/11_run_phase1_alignment.sbatch` and review its completion sentinel.
+2. Review `docs/PROTOCOL_DEVIATIONS.md` and the aggregate Notebook 03 report.
 3. Resolve the task panel with Jeff and mark exactly one configuration `LOCKED`.
 4. Give Codex `prompts/03_BUILD_PHASE3_BASELINES.md`.
 5. After verified baseline completion, give Codex

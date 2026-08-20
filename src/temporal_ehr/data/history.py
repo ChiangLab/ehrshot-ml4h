@@ -21,6 +21,7 @@ class HistoryInstance:
     """One private modeling instance and its strictly prior event rows."""
 
     instance_key: str
+    subject_id: int
     task: str
     split: str
     target: bool
@@ -76,6 +77,7 @@ def _history_query(task_filter: str, split_filter: str) -> str:
     return f"""
         SELECT
             c.instance_key,
+            c.subject_id,
             c.task,
             c.split,
             c.target,
@@ -122,9 +124,9 @@ def iter_strict_histories(
     reader = connection.execute(
         _history_query(task_filter, split_filter),
         [str(cohort_path), str(event_path), *tasks, *requested_splits],
-    ).fetch_record_batch(rows_per_batch=batch_size)
+    ).to_arrow_reader(batch_size=batch_size)
     current_key: str | None = None
-    current_metadata: tuple[str, str, bool, dt.datetime] | None = None
+    current_metadata: tuple[int, str, str, bool, dt.datetime] | None = None
     current_events: list[dict[str, Any]] = []
     try:
         for batch in reader:
@@ -137,6 +139,7 @@ def iter_strict_histories(
                 if instance_key != current_key:
                     current_key = instance_key
                     current_metadata = (
+                        int(row["subject_id"]),
                         str(row["task"]),
                         str(row["split"]),
                         bool(row["target"]),
@@ -145,6 +148,7 @@ def iter_strict_histories(
                 if row["event_time"] is not None:
                     current_events.append(
                         {
+                            "subject_id": int(row["subject_id"]),
                             "time": row["event_time"],
                             "code": row["code"],
                             "numeric_value": row["numeric_value"],

@@ -1,0 +1,12 @@
+version: 1
+name: final_protocol_four_task_proposal
+status: PROPOSED
+decision_owner: William Delery and Jeff
+tasks:
+  - lab_anemia
+  - guo_readmission
+  - new_hypertension
+  - chexpert
+notes: >-
+  This breadth panel is proposed by the final written protocol. It must not be
+  used as a locked experiment panel until reviewed with Jeff.
