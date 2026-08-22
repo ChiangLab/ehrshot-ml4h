@@ -55,11 +55,21 @@ STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 GIT_COMMIT="$(git -C "${PROJECT_ROOT}" rev-parse HEAD)"
 
 cd "${PROJECT_ROOT}"
-PYTHONPATH=src "${PYTHON}" scripts/write_run_status.py RUNNING \
+run_in_container() {
+  srun \
+    --container-image="${CONTAINER_IMAGE}" \
+    --container-mounts=/data:/data \
+    --container-workdir="${PROJECT_ROOT}" \
+    --export=ALL \
+    env PYTHONPATH=src "$@"
+}
+
+run_in_container "${PYTHON}" scripts/write_run_status.py RUNNING \
   --status-dir "${STATUS_DIR}" \
   --job-id "${JOB_ID}" \
   --started-at "${STARTED_AT}" \
   --git-commit "${GIT_COMMIT}" \
+  --run-kind phase1_alignment \
   --environment-audit "outputs/private/run_status/${JOB_ID}/environment_audit.json" \
   --notebook-output "outputs/private/executed_notebooks/03_phase1_protocol_review.ipynb"
 
@@ -73,7 +83,7 @@ finalize_status() {
     exit_status=1
   fi
   ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  PYTHONPATH=src "${PYTHON}" scripts/write_run_status.py "${final_state}" \
+  run_in_container "${PYTHON}" scripts/write_run_status.py "${final_state}" \
     --status-dir "${STATUS_DIR}" \
     --ended-at "${ended_at}" \
     --exit-status "${exit_status}"
@@ -98,19 +108,9 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false
 
-srun \
-  --container-image="${CONTAINER_IMAGE}" \
-  --container-mounts=/data:/data \
-  --container-workdir="${PROJECT_ROOT}" \
-  --export=ALL \
-  "${PYTHON}" scripts/audit_environment.py --output "${ENVIRONMENT_AUDIT}"
+run_in_container "${PYTHON}" scripts/audit_environment.py --output "${ENVIRONMENT_AUDIT}"
 
-srun \
-  --container-image="${CONTAINER_IMAGE}" \
-  --container-mounts=/data:/data \
-  --container-workdir="${PROJECT_ROOT}" \
-  --export=ALL \
-  "${PYTHON}" scripts/execute_notebook.py \
+run_in_container "${PYTHON}" scripts/execute_notebook.py \
   notebooks/03_phase1_protocol_review.ipynb \
   "${NOTEBOOK_OUTPUT}"
 
@@ -123,6 +123,6 @@ if [[ ! -s "${NOTEBOOK_OUTPUT}" || ! "${NOTEBOOK_OUTPUT}" -nt "${STATUS_DIR}/RUN
   exit 1
 fi
 
-PYTHONPATH=src "${PYTHON}" scripts/validate_executed_notebook.py "${NOTEBOOK_OUTPUT}"
-PYTHONPATH=src "${PYTHON}" scripts/review_phase1_results.py --report "${REPORT_PATH}"
+run_in_container "${PYTHON}" scripts/validate_executed_notebook.py "${NOTEBOOK_OUTPUT}"
+run_in_container "${PYTHON}" scripts/review_phase1_results.py --report "${REPORT_PATH}"
 RUN_SUCCEEDED=1

@@ -35,6 +35,12 @@ def write_running(
     git_commit: str,
     environment_audit: str,
     notebook_outputs: Sequence[str],
+    run_kind: str = "phase1_alignment",
+    source_job_id: str | None = None,
+    source_git_commit: str | None = None,
+    recovery_git_commit: str | None = None,
+    validation_report: str | None = None,
+    source_failed_sentinel_sha256: str | None = None,
     repository_root: Path | None = None,
 ) -> Path:
     """Create RUNNING exactly once for a new private job status directory."""
@@ -43,19 +49,26 @@ def write_running(
     if sentinels:
         raise ContractError("Refusing to overwrite an existing job status sentinel.")
     destination = directory / "RUNNING.json"
-    _atomic_json(
-        destination,
-        {
-            "state": "RUNNING",
-            "job_id": str(job_id),
-            "started_at": started_at,
-            "ended_at": None,
-            "git_commit": git_commit,
-            "environment_audit": environment_audit,
-            "notebook_outputs": list(notebook_outputs),
-            "exit_status": None,
-        },
-    )
+    payload = {
+        "state": "RUNNING",
+        "run_kind": run_kind,
+        "job_id": str(job_id),
+        "started_at": started_at,
+        "ended_at": None,
+        "git_commit": git_commit,
+        "environment_audit": environment_audit,
+        "notebook_outputs": list(notebook_outputs),
+        "exit_status": None,
+    }
+    recovery_metadata = {
+        "source_job_id": source_job_id,
+        "source_git_commit": source_git_commit,
+        "recovery_git_commit": recovery_git_commit,
+        "validation_report": validation_report,
+        "source_failed_sentinel_sha256": source_failed_sentinel_sha256,
+    }
+    payload.update({key: value for key, value in recovery_metadata.items() if value is not None})
+    _atomic_json(destination, payload)
     return destination
 
 
@@ -70,6 +83,10 @@ def write_final(
     """Create exactly one COMPLETE or FAILED sentinel after RUNNING."""
     if state not in {"COMPLETE", "FAILED"}:
         raise ValueError("Final state must be COMPLETE or FAILED.")
+    if state == "COMPLETE" and exit_status != 0:
+        raise ContractError("COMPLETE requires exit status 0.")
+    if state == "FAILED" and exit_status == 0:
+        raise ContractError("FAILED requires a nonzero exit status.")
     directory = require_private_output(status_dir, repository_root)
     running_path = directory / "RUNNING.json"
     if not running_path.is_file():

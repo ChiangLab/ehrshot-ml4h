@@ -19,6 +19,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--git-commit", default="")
     parser.add_argument("--environment-audit", default="")
     parser.add_argument("--notebook-output", action="append", default=[])
+    parser.add_argument("--run-kind", default="phase1_alignment")
+    parser.add_argument("--source-job-id")
+    parser.add_argument("--source-git-commit")
+    parser.add_argument("--recovery-git-commit")
+    parser.add_argument("--validation-report")
+    parser.add_argument("--source-failed-sentinel-sha256")
     parser.add_argument("--exit-status", type=int)
     return parser.parse_args()
 
@@ -33,6 +39,12 @@ def main() -> int:
             git_commit=args.git_commit,
             environment_audit=args.environment_audit,
             notebook_outputs=args.notebook_output,
+            run_kind=args.run_kind,
+            source_job_id=args.source_job_id,
+            source_git_commit=args.source_git_commit,
+            recovery_git_commit=args.recovery_git_commit,
+            validation_report=args.validation_report,
+            source_failed_sentinel_sha256=args.source_failed_sentinel_sha256,
         )
     else:
         if args.exit_status is None:
