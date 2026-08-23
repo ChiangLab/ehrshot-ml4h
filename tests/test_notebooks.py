@@ -40,6 +40,14 @@ NOTEBOOKS = {
         "## Packing and information-reduction baselines",
         "## Machine-readable Phase 3 checklist",
     ],
+    "04_pilot_results.ipynb": [
+        "# 04 — Complete three-task engineering pilot",
+        "## Frozen pilot scope and final-panel isolation",
+        "## Train/validation cohort and preparation coverage",
+        "## Validation metrics, calibration, and paired contrasts",
+        "## Token coverage, throughput, failures, and retries",
+        "## Machine-readable completion checklist",
+    ],
 }
 
 

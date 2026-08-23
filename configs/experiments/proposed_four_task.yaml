@@ -1,12 +1,15 @@
 version: 1
 name: final_protocol_four_task_proposal
 status: PROPOSED
-decision_owner: William Delery and Jeff
+decision_owner: William Delery
+consulted_context: Jeff recommended spanning clinically different task families
 tasks:
   - lab_anemia
   - guo_readmission
   - new_hypertension
   - chexpert
 notes: >-
-  This breadth panel is proposed by the final written protocol. It must not be
-  used as a locked experiment panel until reviewed with Jeff.
+  This preserves the historical proposal record. William independently copied
+  this exact panel into locked_panel.yaml on 2026-08-21 before pilot embeddings;
+  the lock records Jeff's family-breadth recommendation without claiming his
+  approval of the exact wording.

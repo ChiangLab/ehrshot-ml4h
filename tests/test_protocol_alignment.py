@@ -30,13 +30,21 @@ def test_checked_in_panel_statuses_and_fail_closed_gate() -> None:
     expected = {
         "pilot_three_task.yaml": "PILOT",
         "proposed_four_task.yaml": "PROPOSED",
-        "locked_panel.yaml": "PENDING",
+        "locked_panel.yaml": "LOCKED",
     }
     for name, status in expected.items():
         panel = load_experiment_panel(Path("configs/experiments") / name)
         assert panel["status"] == status
-        with pytest.raises(ContractError, match="embedding training is blocked"):
-            require_locked_panel(panel)
+        if status == "LOCKED":
+            assert require_locked_panel(panel) == (
+                "lab_anemia",
+                "guo_readmission",
+                "new_hypertension",
+                "chexpert",
+            )
+        else:
+            with pytest.raises(ContractError, match="embedding training is blocked"):
+                require_locked_panel(panel)
 
 
 def test_locked_panel_gate_accepts_only_nonempty_reviewed_panel(tmp_path: Path) -> None:

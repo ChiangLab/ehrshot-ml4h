@@ -22,8 +22,20 @@ until the protocol and test gate are explicitly frozen.
 Do not silently lock the proposed panel, rerun an expensive job, run a model, or overwrite a job
 sentinel. Preserve source notebooks and write executed copies only under `outputs/private/`.
 
-Current critical state: DGX job 407 computed Notebook 03 and the aggregate alignment report at
-source commit `f9a370c7fe1cb13edd126128cfddc79100852913`, then failed because the host-side validator
-lacked `nbformat`. Do not rerun Notebook 03. The next action is the evidence-bound recovery in
-`scripts/slurm/11b_recover_phase1_alignment.sbatch`; DEV-013 remains unresolved until that recovery
-job produces a verified COMPLETE sentinel.
+Current critical state: recovery job 408 verified job 407's completed Notebook 03 and aggregate
+report without rerunning it. Job 408 used commit
+`e12d475d5ec2bc1f6c02aeda28e1a252ac84d6ea`, wrote an atomic COMPLETE sentinel with exit status 0,
+and preserved job 407's FAILED sentinel. Historical `sacct` is unavailable on this site, so durable
+sentinels, the clean log, hashes, and semantic validation are the retained evidence.
+
+The final four-task panel is prospectively LOCKED, but it is isolated from the authorized
+three-task engineering PILOT. A pilot-mode gate may authorize only the pilot artifact namespace;
+it must never allow a pilot cohort or cache to satisfy a final-panel gate. Current implementation
+scope is Qwen3-Embedding-0.6B, 4,096 tokens, M1 and B1-B4, train/validation only. M2, M3, 8B, the
+final-panel cohort, and test evaluation remain prohibited.
+
+The current Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
+`prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those
+files as historical planning records; do not execute them as the next action. After the verified
+pilot handoff, wait for the user-supplied Prompt 3 of 5, to be saved as
+`prompts/05_REVIEW_PILOT_AND_AUTHORIZE_NEXT_PHASE.md`.

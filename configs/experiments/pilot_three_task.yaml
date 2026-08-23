@@ -1,7 +1,8 @@
 version: 1
 name: phase1_three_task_pilot
 status: PILOT
-decision_owner: William Delery and Jeff
+decision_owner: William Delery
+consulted_context: Jeff recommended spanning clinically different task families
 tasks:
   - lab_anemia
   - new_acutemi

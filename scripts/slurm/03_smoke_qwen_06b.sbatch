@@ -17,6 +17,8 @@ srun \
   --container-image="${CONTAINER_IMAGE}" \
   --container-mounts=/data:/data \
   --container-workdir="${PROJECT_ROOT}" \
-  .venv/bin/python scripts/dgx/smoke_test_qwen_embeddings.py \
+  env PYTHONPATH=src HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+    .venv/bin/python scripts/dgx/smoke_test_qwen_embeddings.py \
     --model-path "${MODEL_ROOT}/Qwen3-Embedding-0.6B" \
+    --output "outputs/private/smoke/qwen_embedding_smoke-${SLURM_JOB_ID}.json" \
     --max-seq-length 512

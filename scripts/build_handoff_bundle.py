@@ -17,12 +17,14 @@ from temporal_ehr.serialization.integrity import require_aggregate_output
 AGGREGATE_REPORTS = (
     Path("reports/generated/phase1_protocol_review/protocol_alignment.json"),
     Path("reports/generated/serialization_qc/serialization_qc.json"),
+    Path("reports/generated/pilot/three_task_m1_engineering_pilot_v1/pilot_results.json"),
 )
 HASHED_PROTOCOL_FILES = (
     Path("configs/tasks.yaml"),
     Path("configs/experiments/pilot_three_task.yaml"),
     Path("configs/experiments/proposed_four_task.yaml"),
     Path("configs/experiments/locked_panel.yaml"),
+    Path("configs/experiments/complete_three_task_pilot.yaml"),
     Path("docs/CURRENT_SCIENTIFIC_PROTOCOL.md"),
     Path("docs/PROTOCOL_DEVIATIONS.md"),
 )
@@ -125,6 +127,38 @@ def _aggregate_summary(path: Path) -> dict[str, Any]:
                 },
             }
         )
+    elif path.name == "pilot_results.json":
+        scope = payload.get("scientific_scope", {})
+        tasks = scope.get("tasks") if isinstance(scope, dict) else None
+        summary.update(
+            {
+                "experiment_id": (
+                    payload.get("experiment_id")
+                    if payload.get("experiment_id") == "three_task_m1_engineering_pilot_v1"
+                    else "UNKNOWN"
+                ),
+                "protocol_decision": (
+                    payload.get("protocol_decision")
+                    if payload.get("protocol_decision") == "PILOT_COMPLETE_FINAL_PANEL_UNCHANGED"
+                    else "UNKNOWN"
+                ),
+                "tasks": (
+                    tasks
+                    if tasks == ["lab_anemia", "new_acutemi", "guo_los"]
+                    else []
+                ),
+                "model": (
+                    scope.get("model")
+                    if isinstance(scope, dict) and scope.get("model") == "Qwen/Qwen3-Embedding-0.6B"
+                    else "UNKNOWN"
+                ),
+                "content_matching_passed": bool(payload.get("content_matching_passed")),
+                "test_predictions_or_performance_used": bool(
+                    payload.get("test_predictions_or_performance_used", True)
+                ),
+                "final_panel_used_for_pilot": bool(payload.get("final_panel_used_for_pilot", True)),
+            }
+        )
     return summary
 
 
@@ -159,7 +193,14 @@ def _job_summary(root: Path, job_id: str) -> dict[str, Any]:
         payload = _read_json(path)
         state = payload.get("state") if payload.get("state") in {"RUNNING", "COMPLETE", "FAILED"} else "UNKNOWN"
         run_kind = payload.get("run_kind")
-        if run_kind not in {"phase1_alignment", "phase1_alignment_recovery"}:
+        if run_kind not in {
+            "phase1_alignment",
+            "phase1_alignment_recovery",
+            "pilot_prepare",
+            "pilot_throughput",
+            "pilot_embed_task",
+            "pilot_fit_report",
+        }:
             run_kind = "UNKNOWN"
         safe_payload: dict[str, Any] = {"state": state, "run_kind": run_kind}
         for field in ("job_id", "source_job_id"):

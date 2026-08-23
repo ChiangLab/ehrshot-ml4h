@@ -1,0 +1,61 @@
+version: 1
+experiment_id: three_task_m1_engineering_pilot_v1
+mode: PILOT
+status: PILOT
+approach: M1_direct_serialization
+authorized_on: 2026-08-21
+authorization: explicit engineering-pilot authorization from William Delery
+panel_config: configs/experiments/pilot_three_task.yaml
+locked_final_panel_config: configs/experiments/locked_panel.yaml
+tasks:
+  - lab_anemia
+  - new_acutemi
+  - guo_los
+splits:
+  - train
+  - validation
+cohort_path: outputs/private/cohorts/primary_panel.parquet
+private_root: outputs/private/pilot/three_task_m1_engineering_pilot_v1
+aggregate_root: reports/generated/pilot/three_task_m1_engineering_pilot_v1
+model:
+  repository: Qwen/Qwen3-Embedding-0.6B
+  directory_name: Qwen3-Embedding-0.6B
+  revision_file: PINNED_REVISION.txt
+  artifact_manifest: MODEL_ARTIFACT_MANIFEST.json
+  frozen: true
+  normalize_embeddings: true
+token_budget: 4096
+batch_size: 8
+logistic_seed: 20260815
+bootstrap_seed: 20260818
+bootstrap_replicates: 2000
+c3_seeds:
+  - 20260815
+  - 20260816
+  - 20260817
+regularization_grid:
+  - 0.01
+  - 0.1
+  - 1.0
+  - 10.0
+minimum_report_group_size: 20
+embedding_instructions:
+  lab_anemia: >-
+    Represent this strictly pre-prediction longitudinal record for predicting
+    whether the next qualifying hemoglobin result will be abnormal.
+  new_acutemi: >-
+    Represent this strictly pre-prediction longitudinal record for predicting
+    whether a first acute myocardial infarction diagnosis will occur within one year.
+  guo_los: >-
+    Represent this strictly pre-prediction longitudinal record for predicting
+    whether the current hospitalization will last at least seven days.
+artifact_namespaces:
+  pilot: outputs/private/pilot/three_task_m1_engineering_pilot_v1
+  final: outputs/private/final/locked_four_task_panel_v1
+prohibitions:
+  test_split: true
+  model_download_during_scientific_jobs: true
+  final_panel_cohort_reuse: true
+  m2: true
+  m3: true
+  qwen_8b: true

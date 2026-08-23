@@ -1,9 +1,20 @@
-version: 1
+version: 2
 name: locked_primary_panel
-status: PENDING
-decision_owner: William Delery and Jeff
-tasks: []
-instructions: >-
-  After review with Jeff, copy exactly one reviewed panel into this tasks list
-  and change status to LOCKED. Do not combine panels or infer a choice. All
-  downstream embedding training must fail closed until then.
+status: LOCKED
+decision_owner: William Delery
+consulted_context: Jeff recommended spanning clinically different task families
+locked_on: 2026-08-21
+locked_by: William Delery
+selection_timing: before any pilot embedding result
+tasks:
+  - lab_anemia
+  - guo_readmission
+  - new_hypertension
+  - chexpert
+rationale: >-
+  Prospectively freeze one task from each clinically distinct EHRSHOT family.
+  The choice was informed by Jeff's recommendation to span different task
+  families; this record does not claim that Jeff approved this exact wording.
+isolation: >-
+  The existing three-task engineering pilot, its cohort, and every pilot cache
+  are separate artifacts and may never satisfy a final-panel cohort or cache gate.

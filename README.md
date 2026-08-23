@@ -4,7 +4,8 @@ This repository implements **Does Time Earn Its Tokens? Recurrence, Temporal Ali
 Context Cost in Frozen Longitudinal EHR Embeddings**. The current code audits the real downloaded
 EHRSHOT event table, validates all 15 task-label files and canonical patient splits, selects a
 patient-balanced three-task pilot cohort, audits strict prediction-time censoring, and implements
-protocol-aligned prediction-relative serialization before any embedding experiment.
+protocol-aligned prediction-relative serialization plus a DGX-only complete engineering-pilot
+pipeline. No pilot embedding result has been generated in the source checkout.
 
 Repository code is MIT-licensed. That license does not apply to EHRSHOT data or other governed
 assets, which remain subject to their official DUA and redistribution restrictions.
@@ -142,25 +143,36 @@ fails closed on any request for the test split.
 
 ## Phase 2 protocol review
 
-The existing three-task cohort remains explicitly marked `PILOT`; the four-task written-protocol
-panel remains `PROPOSED`; and `configs/experiments/locked_panel.yaml` remains `PENDING`. Downstream
-embedding training must call the lock gate and cannot proceed until one reviewed panel is marked
-`LOCKED` after confirmation with Jeff.
+Recovery job 408 semantically validated job 407's aggregate protocol report and completed Notebook
+03 without rerunning it. The existing three-task cohort remains explicitly marked `PILOT`. The
+separate final panel is prospectively `LOCKED` as `lab_anemia`, `guo_readmission`,
+`new_hypertension`, and `chexpert`, selected before pilot embeddings and informed by Jeff's
+clinical-family breadth recommendation without claiming his approval of the exact wording.
 
-On the DGX, run only the privacy-safe aggregate review notebook with the local tokenizer (no model
-forward pass):
-
-```bash
-export EHRSHOT_COHORT_PATH="$PWD/outputs/private/cohorts/primary_panel.parquet"
-sbatch --export=ALL scripts/slurm/11_run_phase1_alignment.sbatch
-```
-
-The job creates a private environment audit, hash-only instance manifests, an executed Notebook 03,
-and atomic job-status sentinels. Inspect only the aggregate report with:
+Do not rerun Notebook 03. The original and recovery runners remain for provenance. Inspect only the
+validated aggregate report with:
 
 ```bash
 .venv/bin/python scripts/review_phase1_results.py
 ```
+
+## Complete three-task engineering pilot
+
+The authorized pilot is isolated under its own versioned private namespace and uses only
+`lab_anemia`, `new_acutemi`, and `guo_los`; Qwen3-Embedding-0.6B; 4,096 tokens; M1 direct
+serialization; B1-B4; C0-C3; and train/validation. It cannot satisfy any final-panel gate.
+
+Notebook 04 is a thin aggregate review layer. Reusable preparation, indexing, embedding-cache,
+evaluation, and reporting logic is under `src/temporal_ehr/pilot/`. On the DGX, submit the exact
+containerized dependency chain only after the pinned model smoke test passes:
+
+```bash
+bash scripts/slurm/submit_pilot_chain.sh
+```
+
+The authoritative setup, captured-job-ID, monitoring, semantic-verification, privacy-safe handoff,
+VPN, and model-transfer commands are in [the DGX batch runbook](docs/DGX_BATCH_RUNBOOK.md).
+M2, M3, Qwen 8B, the final-panel cohort, and held-out evaluation remain prohibited.
 
 ## Execution and governance
 

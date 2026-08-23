@@ -1,16 +1,19 @@
 # Current scientific protocol
 
-Status date: 2026-08-21. This is a concise operational index; the final August 14 protocol and
+Status date: 2026-08-22. This is a concise operational index; the final August 14 protocol and
 `PROTOCOL_DEVIATIONS.md` remain authoritative for detail and unresolved differences.
 
 ## Cohort and panel
 
 - The existing governed Phase 1 cohort is a **PILOT** with `lab_anemia`, `new_acutemi`, and
   `guo_los`.
-- The final written protocol proposes a four-family **PROPOSED** panel: `lab_anemia`,
-  `guo_readmission`, `new_hypertension`, and `chexpert`.
-- `configs/experiments/locked_panel.yaml` remains **PENDING**. No embedding training may start
-  until William and Jeff review one panel and mark exactly that panel **LOCKED**.
+- The final four-family panel is prospectively **LOCKED** as `lab_anemia`, `guo_readmission`,
+  `new_hypertension`, and `chexpert`. It was selected before pilot embedding results and informed
+  by Jeff's recommendation for clinical-family breadth; this does not claim his approval of the
+  exact lock wording.
+- The complete three-task engineering pilot is separately authorized for Qwen3-Embedding-0.6B,
+  4,096 tokens, M1 direct serialization, B1-B4, and train/validation only. Pilot artifacts cannot
+  satisfy final-panel gates.
 
 ## Time, windows, and evidence identity
 

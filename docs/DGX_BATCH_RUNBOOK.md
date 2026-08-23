@@ -92,3 +92,214 @@ Then build the aggregate-only handoff:
 
 Copy only reviewed aggregate files to the Mac; never copy private executed notebooks, manifests,
 labels, predictions, embeddings, or cohort rows into a Codex conversation.
+
+## Complete three-task engineering pilot
+
+The pilot is intentionally separate from the locked final panel. It uses only `lab_anemia`,
+`new_acutemi`, and `guo_los`; Qwen3-Embedding-0.6B; 4,096 tokens; M1; and train/validation. Never
+substitute a pilot cohort, prepared table, or cache for a final-panel artifact.
+
+Before connecting to the DGX, commit and push the reviewed source change. Then connect to MedNet VPN,
+SSH to the compute host, and fast-forward the clean DGX checkout:
+
+```bash
+ssh wdelery@10.45.62.90
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+git status --short --branch
+git pull --ff-only origin main
+
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
+export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
+```
+
+Verify the exact governed inputs without printing rows:
+
+```bash
+test -s "${EHRSHOT_DATA_PATH}"
+test -d "${EHRSHOT_ASSET_ROOT}"
+test -s "outputs/private/cohorts/primary_panel.parquet"
+test -s "reports/generated/count_baseline/validation_results.json"
+for task in lab_anemia new_acutemi guo_los; do
+  test -s "outputs/private/count_baseline/${task}/validation_predictions.parquet"
+done
+```
+
+If either pinned-model control file is absent, download the 0.6B snapshot outside the scientific
+chain. The download node must have Hugging Face access; no patient data are read:
+
+```bash
+MODEL_DIR="${TEMPORAL_EHR_MODEL_ROOT}/Qwen3-Embedding-0.6B"
+DOWNLOAD_JOB_ID=""
+if [[ ! -s "${MODEL_DIR}/PINNED_REVISION.txt" || \
+      ! -s "${MODEL_DIR}/MODEL_ARTIFACT_MANIFEST.json" ]]; then
+  DOWNLOAD_JOB_ID="$(
+    sbatch --parsable --partition=batch --export=ALL \
+      scripts/slurm/02_download_qwen_06b.sbatch
+  )"
+  DOWNLOAD_JOB_ID="${DOWNLOAD_JOB_ID%%;*}"
+  echo "DOWNLOAD_JOB_ID=${DOWNLOAD_JOB_ID}"
+fi
+```
+
+Monitor an actual download with `squeue` and its log. After it succeeds, or immediately if the
+model was already complete, submit the synthetic-only GPU smoke test:
+
+```bash
+squeue -j "${DOWNLOAD_JOB_ID}" -o "%.18i %.12P %.26j %.2t %.10M %R" 2>/dev/null || true
+tail -n 100 "slurm-qwen3e-06b-download-${DOWNLOAD_JOB_ID}.out" 2>/dev/null || true
+
+SMOKE_JOB_ID="$(
+  sbatch --parsable --partition=batch --export=ALL \
+    ${DOWNLOAD_JOB_ID:+--dependency=afterok:${DOWNLOAD_JOB_ID}} \
+    scripts/slurm/03_smoke_qwen_06b.sbatch
+)"
+SMOKE_JOB_ID="${SMOKE_JOB_ID%%;*}"
+echo "SMOKE_JOB_ID=${SMOKE_JOB_ID}"
+```
+
+If the download job fails specifically because the DGX has no Hugging Face egress, disconnect from
+VPN and run the same pinned downloader in the Mac checkout, then reconnect to VPN and transfer the
+complete directory. `rsync` is resumable and the DGX smoke test re-verifies every manifest hash:
+
+```bash
+cd "/Users/williamdelery/Library/Mobile Documents/com~apple~CloudDocs/raptor_biodesign_fellowship/ehrshot/temporal-ehr-ml4h"
+source .venv/bin/activate
+PYTHONPATH=src .venv/bin/python scripts/dgx/download_qwen_embeddings.py \
+  --models 0.6B \
+  --output-root "/Users/williamdelery/Downloads/qwen3-embedding"
+
+# Reconnect to MedNet VPN before this transfer.
+caffeinate -i rsync -avP --checksum \
+  "/Users/williamdelery/Downloads/qwen3-embedding/Qwen3-Embedding-0.6B/" \
+  wdelery@10.45.62.90:/data/shared73/projects/wdelery/model_cache/qwen3-embedding/Qwen3-Embedding-0.6B/
+```
+
+After this fallback, set `DOWNLOAD_JOB_ID=""` and submit the smoke job without a dependency.
+
+Do not submit the scientific chain until the smoke job has left `squeue`, its log ends in PASS, the
+private smoke JSON says PASS, and both pinned-model control files are nonempty:
+
+```bash
+squeue -j "${SMOKE_JOB_ID}" -o "%.18i %.12P %.26j %.2t %.10M %R"
+tail -n 100 "slurm-qwen3e-06b-smoke-${SMOKE_JOB_ID}.out"
+SMOKE_REPORT="outputs/private/smoke/qwen_embedding_smoke-${SMOKE_JOB_ID}.json"
+test -s "${SMOKE_REPORT}"
+SMOKE_REPORT="${SMOKE_REPORT}" PYTHONPATH=src .venv/bin/python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+report = json.loads(Path(os.environ["SMOKE_REPORT"]).read_text(encoding="utf-8"))
+assert report["status"] == "PASS"
+assert report["patient_data_used"] is False
+assert report["local_files_only"] is True
+assert report["model_repository"] == "Qwen/Qwen3-Embedding-0.6B"
+for field in ("model_revision_hash", "model_artifact_hash", "tokenizer_hash"):
+    assert len(report[field]) == 64
+print("PASS: pinned offline 0.6B smoke test")
+PY
+test -s "${MODEL_DIR}/PINNED_REVISION.txt"
+test -s "${MODEL_DIR}/MODEL_ARTIFACT_MANIFEST.json"
+```
+
+Submit the full dependency chain and capture every returned job ID:
+
+```bash
+CHAIN_OUTPUT="$(bash scripts/slurm/submit_pilot_chain.sh)"
+printf '%s\n' "${CHAIN_OUTPUT}"
+eval "${CHAIN_OUTPUT}"
+printf '%s\n' "${CHAIN_OUTPUT}" > outputs/private/pilot_chain_job_ids.env
+```
+
+The helper submits this exact graph:
+
+```text
+12 prepare -> 13 throughput -> 14 embedding array (0-2%1) -> 15 fit/report
+               afterok             afterok                    afterok
+```
+
+All four jobs use `partition=batch` and the NVIDIA container. Only throughput and embedding request
+the site-supported `mps:1` shared-GPU resource. The three array indices map, in order, to
+`lab_anemia`, `new_acutemi`, and `guo_los`; `%1` prevents simultaneous use of the single GB10 GPU.
+At this point the jobs are scheduler-owned, so SSH can be exited and the VPN disconnected.
+
+To monitor later, reconnect to VPN, SSH back in, restore the IDs, and inspect scheduler state and
+logs. A log may not exist while a job is pending:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
+export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
+source outputs/private/pilot_chain_job_ids.env
+squeue -j "${PREPARE_JOB_ID},${THROUGHPUT_JOB_ID},${EMBED_ARRAY_JOB_ID},${REPORT_JOB_ID}" \
+  -o "%.18i %.12P %.26j %.2t %.10M %R"
+for log in \
+  "slurm-tehr-pilot-prepare-${PREPARE_JOB_ID}.out" \
+  "slurm-tehr-pilot-throughput-${THROUGHPUT_JOB_ID}.out" \
+  slurm-tehr-pilot-embed-${EMBED_ARRAY_JOB_ID}_*.out \
+  "slurm-tehr-pilot-report-${REPORT_JOB_ID}.out"; do
+  [[ -e "${log}" ]] && tail -n 80 "${log}"
+done
+```
+
+If `sacct` is enabled, use it as additional evidence. This site has previously disabled Slurm
+accounting, so an unavailable `sacct` is not itself failure; job-specific atomic sentinels, clean
+logs, cache hashes, and semantic validators are the durable requirements.
+
+After every job leaves `squeue`, verify every postcondition:
+
+```bash
+source outputs/private/pilot_chain_job_ids.env
+
+for job_id in "${PREPARE_JOB_ID}" "${THROUGHPUT_JOB_ID}" "${REPORT_JOB_ID}"; do
+  test -s "outputs/private/run_status/${job_id}/COMPLETE.json"
+  test ! -e "outputs/private/run_status/${job_id}/FAILED.json"
+done
+for index in 0 1 2; do
+  test -s "outputs/private/run_status/${EMBED_ARRAY_JOB_ID}_${index}/COMPLETE.json"
+  test ! -e "outputs/private/run_status/${EMBED_ARRAY_JOB_ID}_${index}/FAILED.json"
+done
+for task in lab_anemia new_acutemi guo_los; do
+  test -s "outputs/private/pilot/three_task_m1_engineering_pilot_v1/prepared/${task}/COMPLETE.json"
+  test -s "outputs/private/pilot/three_task_m1_engineering_pilot_v1/embeddings/${task}/COMPLETE.json"
+done
+
+REPORT="reports/generated/pilot/three_task_m1_engineering_pilot_v1/pilot_results.json"
+NOTEBOOK="outputs/private/executed_notebooks/04_pilot_results.ipynb"
+test -s "${REPORT}"
+test -s "${NOTEBOOK}"
+PYTHONPATH=src .venv/bin/python scripts/review_pilot_results.py --report "${REPORT}"
+PYTHONPATH=src .venv/bin/python scripts/validate_executed_notebook.py "${NOTEBOOK}"
+```
+
+Build a concise privacy-safe handoff containing only allowlisted aggregate metadata and hashes:
+
+```bash
+HANDOFF_ARGS=(
+  --job-id "${PREPARE_JOB_ID}"
+  --job-id "${THROUGHPUT_JOB_ID}"
+  --job-id "${EMBED_ARRAY_JOB_ID}_0"
+  --job-id "${EMBED_ARRAY_JOB_ID}_1"
+  --job-id "${EMBED_ARRAY_JOB_ID}_2"
+  --job-id "${REPORT_JOB_ID}"
+  --output reports/generated/handoff/pilot_handoff.json
+)
+PYTHONPATH=src .venv/bin/python scripts/build_handoff_bundle.py "${HANDOFF_ARGS[@]}"
+```
+
+Copy only these aggregate files to the Mac:
+
+```bash
+exit
+rsync -avP \
+  wdelery@10.45.62.90:/data/shared73/projects/wdelery/temporal-ehr-ml4h/reports/generated/pilot/three_task_m1_engineering_pilot_v1/pilot_results.json \
+  wdelery@10.45.62.90:/data/shared73/projects/wdelery/temporal-ehr-ml4h/reports/generated/handoff/pilot_handoff.json \
+  "/Users/williamdelery/Downloads/"
+```
+
+Remain on VPN through the `rsync`, then disconnect. Do not copy the patient-window index, prepared
+texts, predictions, embeddings, cache files, executed notebook, or private sentinels to the Mac.
