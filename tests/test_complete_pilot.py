@@ -474,5 +474,13 @@ def test_slurm_pilot_chain_is_containerized_serial_and_fail_closed() -> None:
     assert "RUNNING" in common and "COMPLETE" in common and "FAILED" in common
     assert "export PILOT_GIT_COMMIT" in common
     submit = Path("scripts/slurm/submit_pilot_chain.sh").read_text(encoding="utf-8")
-    assert submit.count("--dependency=\"afterok:") == 3
+    assert submit.count("--dependency=\"afterok:") == 4
     assert "THROUGHPUT_JOB_ID" in submit and "EMBED_ARRAY_JOB_ID" in submit and "REPORT_JOB_ID" in submit
+    assert "PILOT_AFTEROK_JOB_ID" in submit
+
+    prompt2_submit = Path("scripts/slurm/submit_prompt2_execution.sh").read_text(encoding="utf-8")
+    assert "git status --porcelain" in prompt2_submit
+    assert 'PILOT_AFTEROK_JOB_ID="${SMOKE_JOB_ID}"' in prompt2_submit
+    assert "MODEL_ARTIFACT_MANIFEST.json" in prompt2_submit
+    assert "outputs/private/submissions/prompt2-${SMOKE_JOB_ID}.env" in prompt2_submit
+    assert "Refusing to overwrite existing submission record" in prompt2_submit

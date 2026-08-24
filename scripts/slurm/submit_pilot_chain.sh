@@ -12,7 +12,19 @@ for variable in EHRSHOT_DATA_PATH EHRSHOT_ASSET_ROOT TEMPORAL_EHR_MODEL_ROOT; do
   fi
 done
 
-PREPARE_JOB_ID="$(sbatch --parsable --partition=batch --export=ALL scripts/slurm/12_pilot_prepare.sbatch)"
+prepare_dependency=()
+if [[ -n "${PILOT_AFTEROK_JOB_ID:-}" ]]; then
+  if [[ ! "${PILOT_AFTEROK_JOB_ID}" =~ ^[0-9]+$ ]]; then
+    echo "PILOT_AFTEROK_JOB_ID must be one numeric Slurm job ID." >&2
+    exit 1
+  fi
+  prepare_dependency+=(--dependency="afterok:${PILOT_AFTEROK_JOB_ID}")
+fi
+
+PREPARE_JOB_ID="$(
+  sbatch --parsable --partition=batch "${prepare_dependency[@]}" --export=ALL \
+    scripts/slurm/12_pilot_prepare.sbatch
+)"
 PREPARE_JOB_ID="${PREPARE_JOB_ID%%;*}"
 THROUGHPUT_JOB_ID="$(
   sbatch --parsable --partition=batch --dependency="afterok:${PREPARE_JOB_ID}" --export=ALL \

@@ -42,6 +42,9 @@ Status date: 2026-08-24
   it but failed the unit-norm contract because SentenceTransformers normalized finite vectors in
   BF16. A synthetic follow-up established that explicit FP32 L2 normalization is correct; the
   shared smoke/scientific encoder fix is implemented locally and awaits a new DGX smoke run.
+- Commit `cb07cb5` contains the FP32 normalization repair and is on `origin/main`. Canonical prompts
+  1-5 and the dependency-locked Prompt 2 submission/context workflow are being added as a
+  source-only descendant; no additional governed execution has yet occurred.
 - This authorization supersedes the older sequencing proposals in checked-in prompts 03 and 04;
   they remain historical records and are not the current execution plan.
 - Final-panel cohort construction, M2, M3, Qwen 8B, and held-out evaluation remain out of scope.

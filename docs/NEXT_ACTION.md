@@ -2,15 +2,13 @@
 
 Status date: 2026-08-24
 
-1. Review and commit the explicit FP32 L2-normalization repair prompted by failed synthetic smoke
-   job 411; generated aggregate and all private artifacts remain ignored.
-2. Push the reviewed commit, reconnect to MedNet VPN, fast-forward the DGX checkout, and rerun the
-   pinned Qwen3-Embedding-0.6B synthetic smoke test. Do not redownload the complete model.
-3. Only after the new smoke report passes, submit pilot prepare, throughput, task-array embedding,
-   and fit/report jobs with `afterok`
-   dependencies. The array concurrency remains one for the single physical GB10 GPU.
-4. Verify every job/array sentinel, private cache COMPLETE marker, aggregate report, Notebook 04,
-   and privacy-safe handoff before copying aggregate outputs to the Mac.
-5. Do not construct the final-panel cohort, run M2/M3/8B, or inspect held-out performance.
-6. After the verified handoff, await the user-supplied Prompt 3 of 5. Save it as
-   `prompts/05_REVIEW_PILOT_AND_AUTHORIZE_NEXT_PHASE.md`; no file with that name exists yet.
+1. Fast-forward the clean DGX checkout to commit `cb07cb5` or its workflow-only descendant, restore
+   the four governed path variables, and run `bash scripts/slurm/submit_prompt2_execution.sh` once.
+   Do not redownload the complete model and do not treat failed smoke job 411 as success.
+2. After all dependency-locked jobs stop, verify the new smoke report, every job/array sentinel,
+   every private cache COMPLETE marker, the aggregate pilot report, Notebook 04, and the
+   privacy-safe handoff before copying only aggregate outputs to the Mac.
+3. Do not construct the final-panel cohort, run M2/M3/8B, or inspect held-out performance until the
+   Prompt 2 pilot is COMPLETE.
+4. Once its aggregate and handoff are copied locally, execute the sole active canonical prompt:
+   `prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md`.

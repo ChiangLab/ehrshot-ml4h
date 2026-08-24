@@ -186,6 +186,22 @@ vectors, but SentenceTransformers' built-in BF16 normalization exceeded the unit
 The shared encoder now requests raw BF16 vectors and performs explicit FP32 L2 normalization. A
 new smoke job from the repaired source must pass; job 411 must never be treated as the gate.
 
+After commit `cb07cb5` or a descendant is cleanly checked out, the preferred Prompt 2 path is the
+single fail-closed submission helper below. It verifies the model controls, governed inputs, count
+baseline inputs, and clean Git state; submits the smoke job; makes pilot preparation depend on
+smoke success; submits the remaining chain; and writes all IDs under
+`outputs/private/submissions/` without overwriting an earlier record:
+
+```bash
+bash scripts/slurm/submit_prompt2_execution.sh
+source outputs/private/prompt2_job_ids.env
+squeue -j "${SMOKE_JOB_ID},${PREPARE_JOB_ID},${THROUGHPUT_JOB_ID},${EMBED_ARRAY_JOB_ID},${REPORT_JOB_ID}" \
+  -o "%.18i %.12P %.26j %.2t %.10M %R"
+```
+
+The explicit commands below remain useful for diagnosis, but do not manually resubmit part of the
+chain after the helper succeeds.
+
 ```bash
 squeue -j "${SMOKE_JOB_ID}" -o "%.18i %.12P %.26j %.2t %.10M %R"
 tail -n 100 "slurm-qwen3e-06b-smoke-${SMOKE_JOB_ID}.out"

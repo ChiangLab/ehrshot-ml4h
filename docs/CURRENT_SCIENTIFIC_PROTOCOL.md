@@ -38,6 +38,8 @@ Status date: 2026-08-22. This is a concise operational index; the final August 1
 ## Models and evaluation boundary
 
 - M1: one frozen embedding of the flat complete chronological document, then logistic regression.
+- Frozen Qwen inference uses BF16 where configured, but finite raw vectors are promoted and
+  explicitly L2-normalized in FP32 before caching; see DEC-011 and DEV-016.
 - M2: one authorized local, non-recursive longitudinal summary, frozen embedding, then logistic
   regression. It is RAPTOR-inspired compression, not a RAPTOR hierarchy.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus

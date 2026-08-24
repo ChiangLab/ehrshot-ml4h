@@ -39,3 +39,11 @@ The current Prompt 2 authorization supersedes the sequencing and narrower scope 
 files as historical planning records; do not execute them as the next action. After the verified
 pilot handoff, wait for the user-supplied Prompt 3 of 5, to be saved as
 `prompts/05_REVIEW_PILOT_AND_AUTHORIZE_NEXT_PHASE.md`.
+
+Canonical phase prompts live under `prompts/completed/`, `prompts/next/`, and `prompts/planned/`.
+Files numbered 03 and 04 at the top level predate the current five-prompt execution plan and remain
+historical only. `docs/NEXT_ACTION.md` names the sole active prompt and gate. After each phase,
+update `PROJECT_STATE.md`, `DECISION_LOG.md` or `PROTOCOL_DEVIATIONS.md` as applicable,
+`RESULTS_REGISTRY.md`, and `NEXT_ACTION.md`; run `scripts/check_project_context.py`; generate a
+privacy-safe handoff; then move the finished
+canonical prompt from `prompts/next/` to `prompts/completed/` and promote exactly one planned prompt.
