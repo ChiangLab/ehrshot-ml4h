@@ -1,6 +1,6 @@
 # Project state
 
-Status date: 2026-08-22
+Status date: 2026-08-24
 
 ## Source state
 
@@ -38,6 +38,10 @@ Status date: 2026-08-22
 ## Current build state
 
 - Prompt 2 authorizes the isolated complete three-task engineering pilot.
+- The pinned Qwen3-Embedding-0.6B artifact is complete on the DGX. Synthetic smoke job 411 loaded
+  it but failed the unit-norm contract because SentenceTransformers normalized finite vectors in
+  BF16. A synthetic follow-up established that explicit FP32 L2 normalization is correct; the
+  shared smoke/scientific encoder fix is implemented locally and awaits a new DGX smoke run.
 - This authorization supersedes the older sequencing proposals in checked-in prompts 03 and 04;
   they remain historical records and are not the current execution plan.
 - Final-panel cohort construction, M2, M3, Qwen 8B, and held-out evaluation remain out of scope.

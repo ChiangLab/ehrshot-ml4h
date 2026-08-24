@@ -1,6 +1,6 @@
 # Decision log
 
-Status date: 2026-08-22. Open scientific deviations are tracked in greater detail in
+Status date: 2026-08-24. Open scientific deviations are tracked in greater detail in
 `PROTOCOL_DEVIATIONS.md`.
 
 | ID | Decision | Status | Evidence or next gate |
@@ -15,3 +15,4 @@ Status date: 2026-08-22. Open scientific deviations are tracked in greater detai
 | DEC-008 | Do not access held-out test performance until the panel and full experiment manifest are frozen. | ACTIVE CONTROL | Train/validation-only development continues. |
 | DEC-009 | Recover job 407 instead of rerunning Notebook 03. Preserve its FAILED sentinel permanently. | COMPLETE | Job 408 wrote COMPLETE with exit status 0 and preserved the source failure hash. |
 | DEC-010 | Authorize the complete three-task engineering pilot without allowing it to satisfy the final-panel gate. | ACTIVE PILOT | Qwen3-Embedding-0.6B, 4,096 tokens, M1 and B1-B4, train/validation only. |
+| DEC-011 | Retain BF16 Qwen inference but normalize the finite raw embedding vectors explicitly in FP32. | IMPLEMENTED; DGX VERIFICATION PENDING | Synthetic job 411 failed built-in BF16 normalization; a synthetic DGX diagnostic produced unit vectors under explicit FP32 L2 normalization. A new smoke job must pass before the pilot chain. |

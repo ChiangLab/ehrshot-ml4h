@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 
-from temporal_ehr.pilot.model import load_model_identity
+from temporal_ehr.pilot.model import load_model_identity, normalize_embeddings_float32
 from temporal_ehr.serialization.integrity import stable_hash
 
 SYNTHETIC_HISTORY = [
@@ -50,15 +50,13 @@ def main() -> int:
     encode_kwargs = {
         "batch_size": 3,
         "convert_to_numpy": True,
-        "normalize_embeddings": True,
+        "normalize_embeddings": False,
         "show_progress_bar": False,
     }
     if args.dimension is not None:
         encode_kwargs["truncate_dim"] = args.dimension
-    embeddings = model.encode(SYNTHETIC_HISTORY, **encode_kwargs)
-    norms = np.linalg.norm(embeddings, axis=1)
-    if not np.isfinite(embeddings).all() or not np.allclose(norms, 1.0, atol=1e-3):
-        raise RuntimeError("Embedding smoke test returned non-finite or non-normalized vectors.")
+    embeddings = normalize_embeddings_float32(model.encode(SYNTHETIC_HISTORY, **encode_kwargs))
+    norms = np.linalg.norm(embeddings.astype(np.float64), axis=1)
     result = {
         "status": "PASS",
         "model_directory_name": args.model_path.name,

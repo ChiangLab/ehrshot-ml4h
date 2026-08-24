@@ -181,6 +181,11 @@ After this fallback, set `DOWNLOAD_JOB_ID=""` and submit the smoke job without a
 Do not submit the scientific chain until the smoke job has left `squeue`, its log ends in PASS, the
 private smoke JSON says PASS, and both pinned-model control files are nonempty:
 
+Smoke job 411 is retained failed evidence: the pinned weights loaded and returned finite BF16
+vectors, but SentenceTransformers' built-in BF16 normalization exceeded the unit-norm tolerance.
+The shared encoder now requests raw BF16 vectors and performs explicit FP32 L2 normalization. A
+new smoke job from the repaired source must pass; job 411 must never be treated as the gate.
+
 ```bash
 squeue -j "${SMOKE_JOB_ID}" -o "%.18i %.12P %.26j %.2t %.10M %R"
 tail -n 100 "slurm-qwen3e-06b-smoke-${SMOKE_JOB_ID}.out"

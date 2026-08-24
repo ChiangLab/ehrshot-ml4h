@@ -22,6 +22,37 @@ class ModelIdentity:
     directory: Path
 
 
+def normalize_embeddings_float32(vectors: np.ndarray) -> np.ndarray:
+    """L2-normalize finite embedding rows after promoting them to float32.
+
+    SentenceTransformers may perform ``normalize_embeddings=True`` in the
+    encoder's BF16 dtype.  On the DGX GB10 this left otherwise-finite Qwen
+    vectors outside the unit-norm tolerance.  Normalizing the raw vectors in
+    float32 preserves BF16 inference while making the stored embedding
+    contract explicit and reproducible.
+    """
+    array = np.asarray(vectors, dtype=np.float32)
+    if array.ndim != 2 or array.shape[0] < 1 or array.shape[1] < 1:
+        raise ContractError("Qwen returned an invalid embedding matrix shape.")
+    if not np.isfinite(array).all():
+        raise ContractError("Qwen returned non-finite embeddings before normalization.")
+
+    norms = np.linalg.norm(array.astype(np.float64), axis=1)
+    if not np.isfinite(norms).all() or np.any(norms <= 0.0):
+        raise ContractError("Qwen returned embeddings with invalid L2 norms.")
+
+    normalized = np.asarray(array / norms[:, None], dtype=np.float32)
+    normalized_norms = np.linalg.norm(normalized.astype(np.float64), axis=1)
+    if not np.isfinite(normalized).all() or not np.allclose(
+        normalized_norms,
+        1.0,
+        atol=1e-6,
+        rtol=0.0,
+    ):
+        raise ContractError("Qwen embeddings failed float32 L2 normalization.")
+    return normalized
+
+
 def load_model_identity(model_directory: Path, *, expected_repository: str) -> ModelIdentity:
     """Verify the download-time artifact manifest before any scientific job proceeds."""
     revision_path = model_directory / "PINNED_REVISION.txt"
@@ -87,14 +118,10 @@ class LocalQwenEncoder:
             texts,
             batch_size=int(batch_size),
             convert_to_numpy=True,
-            normalize_embeddings=True,
+            normalize_embeddings=False,
             show_progress_bar=False,
         )
-        vectors = np.asarray(vectors, dtype=np.float32)
-        norms = np.linalg.norm(vectors, axis=1)
-        if not np.isfinite(vectors).all() or not np.allclose(norms, 1.0, atol=1e-3):
-            raise ContractError("Qwen returned non-finite or non-normalized embeddings.")
-        return vectors
+        return normalize_embeddings_float32(vectors)
 
     def peak_memory_bytes(self) -> int:
         return int(self.torch.cuda.max_memory_allocated())
