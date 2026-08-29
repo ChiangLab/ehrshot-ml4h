@@ -1,6 +1,6 @@
 # Project state
 
-Status date: 2026-08-24
+Status date: 2026-08-29
 
 ## Source state
 
@@ -10,8 +10,9 @@ Status date: 2026-08-24
 - Recovery-validator commit `e12d475d5ec2bc1f6c02aeda28e1a252ac84d6ea` is on `main`.
 - The pilot cohort remains the three-task engineering panel. The separate final four-task panel is
   now prospectively locked before pilot embedding results.
-- No embedding experiment, local-LLM summarization, model training, or held-out evaluation has run
-  as part of this recovery work.
+- The later Prompt 2 engineering pilot ran embeddings and validation-only readouts independently of
+  the earlier recovery work. No local-LLM summarization, final-panel modeling, or held-out
+  evaluation has run.
 
 ## DGX job 407 evidence
 
@@ -37,14 +38,22 @@ Status date: 2026-08-24
 
 ## Current build state
 
-- Prompt 2 authorizes the isolated complete three-task engineering pilot.
+- Prompt 2's isolated complete three-task engineering pilot is COMPLETE.
 - The pinned Qwen3-Embedding-0.6B artifact is complete on the DGX. Synthetic smoke job 411 loaded
   it but failed the unit-norm contract because SentenceTransformers normalized finite vectors in
-  BF16. A synthetic follow-up established that explicit FP32 L2 normalization is correct; the
-  shared smoke/scientific encoder fix is implemented locally and awaits a new DGX smoke run.
+  BF16. A corrected synthetic smoke run produced finite 1,024-dimensional embeddings with norms
+  from 0.9999999992 to 1.0000000016, verifying explicit FP32 L2 normalization.
 - Commit `cb07cb5` contains the FP32 normalization repair and is on `origin/main`. Canonical prompts
-  1-5 and the dependency-locked Prompt 2 submission/context workflow are being added as a
-  source-only descendant; no additional governed execution has yet occurred.
+  1-5 and the dependency-locked workflow are in commit
+  `ae35c50982ed56cee9a90875cdc98a05f63ffd54`, which governed Prompt 2 execution.
+- Jobs 415, 416, 417_0, 417_1, 417_2, and 418 all wrote COMPLETE with exit status 0. The in-container
+  notebook and aggregate reviewers passed. The copied pilot report has SHA-256
+  `6b2d812cf430ed186fae00615e3b302dd8da58294b23902a74ef514c4047494d`; its privacy-safe handoff
+  has SHA-256 `e95300137aaa317a65138f9fa55a4f121ab466fb5ed3d869c5f6660e21930042`.
+- The historical Phase 2 alignment report remains `NO_GO` because it predates the panel lock. Do
+  not rewrite it; the subsequently locked configuration and completed pilot are the later gate
+  evidence.
 - This authorization supersedes the older sequencing proposals in checked-in prompts 03 and 04;
   they remain historical records and are not the current execution plan.
-- Final-panel cohort construction, M2, M3, Qwen 8B, and held-out evaluation remain out of scope.
+- Prompt 3 final-panel foundation and M1 validation are now authorized. M2, M3, and held-out
+  evaluation remain out of scope.

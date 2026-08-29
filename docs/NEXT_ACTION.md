@@ -1,14 +1,8 @@
 # Next action
 
-Status date: 2026-08-24
+Status date: 2026-08-29
 
-1. Fast-forward the clean DGX checkout to commit `cb07cb5` or its workflow-only descendant, restore
-   the four governed path variables, and run `bash scripts/slurm/submit_prompt2_execution.sh` once.
-   Do not redownload the complete model and do not treat failed smoke job 411 as success.
-2. After all dependency-locked jobs stop, verify the new smoke report, every job/array sentinel,
-   every private cache COMPLETE marker, the aggregate pilot report, Notebook 04, and the
-   privacy-safe handoff before copying only aggregate outputs to the Mac.
-3. Do not construct the final-panel cohort, run M2/M3/8B, or inspect held-out performance until the
-   Prompt 2 pilot is COMPLETE.
-4. Once its aggregate and handoff are copied locally, execute the sole active canonical prompt:
-   `prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md`.
+Execute `prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md` in the clean Mac checkout.
+Treat the copied Prompt 2 aggregate only as engineering evidence and preserve the prospectively
+locked four-task panel. Implement and validate source locally without real data/model execution,
+M2, M3, or test access. Do not submit DGX jobs until Prompt 3 finishes with tested exact commands.

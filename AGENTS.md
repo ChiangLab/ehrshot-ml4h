@@ -23,22 +23,23 @@ Do not silently lock the proposed panel, rerun an expensive job, run a model, or
 sentinel. Preserve source notebooks and write executed copies only under `outputs/private/`.
 
 Current critical state: recovery job 408 verified job 407's completed Notebook 03 and aggregate
-report without rerunning it. Job 408 used commit
-`e12d475d5ec2bc1f6c02aeda28e1a252ac84d6ea`, wrote an atomic COMPLETE sentinel with exit status 0,
-and preserved job 407's FAILED sentinel. Historical `sacct` is unavailable on this site, so durable
-sentinels, the clean log, hashes, and semantic validation are the retained evidence.
+without rerunning it. The complete Prompt 2 engineering pilot then passed at commit
+`ae35c50982ed56cee9a90875cdc98a05f63ffd54`: preparation 415, throughput 416, embedding array
+417_0 through 417_2, and fit/report 418 all wrote COMPLETE with exit status 0. The pilot aggregate
+SHA-256 is `6b2d812cf430ed186fae00615e3b302dd8da58294b23902a74ef514c4047494d` and records
+`PILOT_COMPLETE_FINAL_PANEL_UNCHANGED`. Historical `sacct` is unavailable, so durable sentinels,
+clean logs, hashes, and semantic validation are the retained evidence.
 
-The final four-task panel is prospectively LOCKED, but it is isolated from the authorized
-three-task engineering PILOT. A pilot-mode gate may authorize only the pilot artifact namespace;
-it must never allow a pilot cohort or cache to satisfy a final-panel gate. Current implementation
-scope is Qwen3-Embedding-0.6B, 4,096 tokens, M1 and B1-B4, train/validation only. M2, M3, 8B, the
-final-panel cohort, and test evaluation remain prohibited.
+The final four-task panel is prospectively LOCKED and remains isolated from the completed
+three-task engineering PILOT. A pilot cohort or cache must never satisfy a final-panel gate. The
+active Prompt 3 scope authorizes the new versioned final cohort, Qwen3-Embedding-0.6B at 8,192
+tokens, final M1 and B1-B4, the runtime-only 8B feasibility gate, and train/validation only. M2,
+M3, and held-out evaluation remain prohibited.
 
-The current Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
+The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those
-files as historical planning records; do not execute them as the next action. After the verified
-pilot handoff, wait for the user-supplied Prompt 3 of 5, to be saved as
-`prompts/05_REVIEW_PILOT_AND_AUTHORIZE_NEXT_PHASE.md`.
+files as historical planning records. The sole active implementation prompt is
+`prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md`.
 
 Canonical phase prompts live under `prompts/completed/`, `prompts/next/`, and `prompts/planned/`.
 Files numbered 03 and 04 at the top level predate the current five-prompt execution plan and remain
