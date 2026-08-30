@@ -447,6 +447,9 @@ def test_final_slurm_chain_is_containerized_task_mapped_and_atomic() -> None:
     submit = Path("scripts/slurm/submit_prompt3_execution.sh").read_text(encoding="utf-8")
     assert "git status --porcelain" in submit
     assert "Qwen3-Embedding-8B" in submit
+    assert "--job-name=tehr-prompt3-preflight" in submit
+    assert '--container-image="${CONTAINER_IMAGE}"' in submit
+    assert "env PYTHONPATH=src .venv/bin/python scripts/run_final_m1.py hard-gates" in submit
     assert 'afterok:${FOUNDATION_JOB_ID}:${SMOKE_8B_JOB_ID}' in submit
     assert 'afterok:${THROUGHPUT_JOB_ID}' in submit
     assert 'afterok:${EMBED_ARRAY_JOB_ID}' in submit

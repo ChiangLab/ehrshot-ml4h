@@ -4,8 +4,8 @@ Status date: 2026-08-29
 
 ## Source state
 
-- The Mac `main`/`origin/main` baseline is `c755d93bf907be642702e200d3ec5fe6f387dab6`
-  (`Record completed Prompt 2 pilot evidence`). Prompt 3 changes are intentionally uncommitted.
+- Prompt 3 source commit `6a0d0accddb0098f713796ca65750ca162a7daeb` is on Mac, `origin/main`,
+  and the DGX. The containerized-preflight hotfix is intentionally uncommitted pending review.
 - Baseline source commit for DGX job 407:
   `f9a370c7fe1cb13edd126128cfddc79100852913`.
 - That commit contains the 12-hour Phase 1 alignment runner and protocol-aligned serializer QC.
@@ -57,14 +57,18 @@ Status date: 2026-08-29
   evidence.
 - This authorization supersedes the older sequencing proposals in checked-in prompts 03 and 04;
   they remain historical records and are not the current execution plan.
-- Prompt 3 final-panel foundation and M1 source is implemented in the current uncommitted Mac
-  worktree. It includes the exact final cohort selection rule, strict-censored/deduplicated
+- Prompt 3 final-panel foundation and M1 source is implemented at commit `6a0d0acc`. It includes
+  the exact final cohort selection rule, strict-censored/deduplicated
   patient-window foundation, outcome/shortcut audits, 8,192-token 0.6B embeddings, runtime-only
   8B confirmatory gate, condition-level resumable caches, task array jobs, paired patient
   bootstrap reporting, semantic validators, aggregate notebooks, and privacy-safe handoff support.
 - Local validation passed 92 synthetic tests, Ruff, shell syntax, context, and privacy gates. No real
   EHRSHOT row, model, final metric, M2/M3 path, or held-out test performance was accessed locally.
-- Governed Prompt 3 jobs have not been submitted. Before submission, the DGX needs a clean reviewed
-  Prompt 3 commit and a complete pinned/hash-manifested Qwen3-Embedding-8B snapshot. Historical
-  inspection found the earlier 8B directory was tokenizer-only, so its full weights must be
-  downloaded or transferred and smoke-tested. M2, M3, and held-out evaluation remain out of scope.
+- Governed Prompt 3 jobs have not been submitted. The complete 15 GB 8B snapshot was transferred
+  from the Mac after DGX download job 421 stalled and was canceled; it still requires the
+  dependency-gated synthetic smoke test.
+- Before submission, the helper's host-side hard-gate CLI failed because NumPy exists in the NVIDIA
+  container rather than the DGX host environment. The locally validated uncommitted hotfix moves
+  that preflight into a short batch-partition container step; it must be committed, pushed, and
+  pulled before submission. Do not install or override system Python. M2, M3, and held-out
+  evaluation remain out of scope.

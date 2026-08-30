@@ -8,6 +8,7 @@ ASSET_ROOT="${EHRSHOT_ASSET_ROOT:?Set EHRSHOT_ASSET_ROOT before submission}"
 EVENT_PATH="${EHRSHOT_DATA_PATH:?Set EHRSHOT_DATA_PATH before submission}"
 PRIMARY_MODEL="${MODEL_ROOT}/Qwen3-Embedding-0.6B"
 CONFIRMATORY_MODEL="${MODEL_ROOT}/Qwen3-Embedding-8B"
+CONTAINER_IMAGE="/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh"
 
 cd "${PROJECT_ROOT}"
 
@@ -45,7 +46,17 @@ if [[ ! -d "${ASSET_ROOT}" ]]; then
   exit 1
 fi
 
-PYTHONPATH=src .venv/bin/python scripts/run_final_m1.py hard-gates
+srun \
+  --partition=batch \
+  --job-name=tehr-prompt3-preflight \
+  --cpus-per-task=2 \
+  --mem=8G \
+  --time=00:10:00 \
+  --container-image="${CONTAINER_IMAGE}" \
+  --container-mounts=/data:/data \
+  --container-workdir="${PROJECT_ROOT}" \
+  --export=ALL \
+  env PYTHONPATH=src .venv/bin/python scripts/run_final_m1.py hard-gates
 
 mkdir -p outputs/private/submissions
 SMOKE_8B_JOB_ID="$(

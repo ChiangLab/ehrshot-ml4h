@@ -357,7 +357,17 @@ for size in 0.6B 8B; do
   test -s "${TEMPORAL_EHR_MODEL_ROOT}/Qwen3-Embedding-${size}/PINNED_REVISION.txt"
   test -s "${TEMPORAL_EHR_MODEL_ROOT}/Qwen3-Embedding-${size}/MODEL_ARTIFACT_MANIFEST.json"
 done
-PYTHONPATH=src .venv/bin/python scripts/run_final_m1.py hard-gates
+srun \
+  --partition=batch \
+  --job-name=tehr-prompt3-preflight \
+  --cpus-per-task=2 \
+  --mem=8G \
+  --time=00:10:00 \
+  --container-image=/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh \
+  --container-mounts=/data:/data \
+  --container-workdir="$PWD" \
+  --export=ALL \
+  env PYTHONPATH=src .venv/bin/python scripts/run_final_m1.py hard-gates
 ```
 
 An old 8B directory containing only tokenizer files is not a model snapshot. If the 8B manifest is
