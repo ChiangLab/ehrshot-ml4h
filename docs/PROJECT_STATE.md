@@ -4,8 +4,9 @@ Status date: 2026-08-29
 
 ## Source state
 
-- Prompt 3 source commit `6a0d0accddb0098f713796ca65750ca162a7daeb` is on Mac, `origin/main`,
-  and the DGX. The containerized-preflight hotfix is intentionally uncommitted pending review.
+- Prompt 3 source, container-preflight repair, and verified-node pin are on Mac, `origin/main`, and
+  the DGX through commit `f45e61c0861b246a0f0061f7dcf4e9aa65ced880`. The subsequent duplicate
+  official prediction-time repair has passed local validation; governed DGX verification is pending.
 - Baseline source commit for DGX job 407:
   `f9a370c7fe1cb13edd126128cfddc79100852913`.
 - That commit contains the 12-hour Phase 1 alignment runner and protocol-aligned serializer QC.
@@ -73,5 +74,14 @@ Status date: 2026-08-29
   finite FP32-normalized embeddings, and no patient data. Foundation job 424 was scheduled on
   `dgit00038674` and failed before scientific execution because Pyxis could not create
   `/run/user/2051`; downstream jobs 425–427 were canceled and no final aggregate was created. A
-  verified-node hotfix now pins the fresh Prompt 3 chain to `dgit00038673` pending commit/pull/run.
-  M2, M3, and held-out evaluation remain out of scope.
+  verified-node hotfix was then committed as `f45e61c` to pin the fresh Prompt 3 chain to
+  `dgit00038673`. M2, M3, and held-out evaluation remain out of scope.
+- Commit `f45e61c0861b246a0f0061f7dcf4e9aa65ced880` pinned the chain to the verified node. In the
+  resulting jobs, synthetic 8B smoke 429 passed and foundation 430 reached governed cohort
+  construction, then failed closed because an official anemia patient/time group had conflicting
+  binary targets. Jobs 431–433 were canceled. An aggregate-only governed audit found 183 duplicate
+  time groups in anemia and 752 in CheXpert across train/validation, none in readmission or
+  hypertension, and only a suppressed small number of patients losing all candidates. The pending
+  repair excludes every duplicated patient/task/time group before ranking without consulting label
+  values, then reports privacy-suppressed aggregate accounting. It passed 93 local synthetic tests,
+  Ruff, shell syntax, context, privacy, and pre-push checks. No final model or test result ran.

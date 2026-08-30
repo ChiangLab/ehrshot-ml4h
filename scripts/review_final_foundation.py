@@ -71,16 +71,43 @@ def validate_final_foundation(payload: dict[str, Any]) -> None:
         raise ContractError("Final foundation task/window/censoring/deduplication scope drifted.")
     cohort = payload.get("cohort", {})
     groups = cohort.get("groups", []) if isinstance(cohort, dict) else []
+    duplicate_audit = (
+        cohort.get("official_label_duplicate_time_audit", []) if isinstance(cohort, dict) else []
+    )
     if (
         {(item.get("task"), item.get("split")) for item in groups}
         != {(task, split) for task in FINAL_TASKS for split in ("train", "validation")}
         or cohort.get("maximum_instances_per_patient_task") != 1
         or cohort.get("test_instances_selected") != 0
         or cohort.get("selection_uses_outcome") is not False
+        or cohort.get("selection_uses_source_row_order") is not False
         or cohort.get("selection_uses_history_or_record_length") is not False
         or cohort.get("selection_uses_model_result") is not False
+        or cohort.get("duplicate_prediction_time_policy")
+        != "exclude_entire_group_regardless_of_label_values"
+        or cohort.get("duplicate_prediction_time_groups_excluded_before_ranking") is not True
+        or cohort.get("duplicate_group_exclusion_uses_label_values") is not False
+        or {(item.get("task"), item.get("split")) for item in duplicate_audit}
+        != {(task, split) for task in FINAL_TASKS for split in ("train", "validation")}
     ):
         raise ContractError("Final cohort selection or coverage contract failed.")
+    for item in duplicate_audit:
+        if (
+            int(item.get("official_label_rows", 0)) < 1
+            or int(item.get("official_prediction_time_groups", 0)) < 1
+            or int(item.get("maximum_rows_at_one_prediction_time", 0)) < 1
+            or not all(
+                isinstance(item.get(field), int)
+                or (isinstance(item.get(field), str) and item[field].startswith("<"))
+                for field in (
+                    "duplicate_prediction_time_groups_excluded",
+                    "conflicting_binary_target_groups_observed",
+                    "patients_with_duplicate_prediction_times",
+                    "patients_with_no_eligible_time_after_duplicate_exclusion",
+                )
+            )
+        ):
+            raise ContractError("Final cohort duplicate-time audit is incomplete.")
     summaries = payload.get("task_summaries", [])
     if {item.get("task") for item in summaries} != set(FINAL_TASKS):
         raise ContractError("Final foundation summaries do not cover exactly four tasks.")

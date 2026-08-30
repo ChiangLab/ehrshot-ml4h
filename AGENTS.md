@@ -32,16 +32,16 @@ clean logs, hashes, and semantic validation are the retained evidence.
 
 The final four-task panel is prospectively LOCKED and remains isolated from the completed
 three-task engineering PILOT. A pilot cohort or cache must never satisfy a final-panel gate. Prompt
-3 source now implements the new versioned final cohort, Qwen3-Embedding-0.6B at 8,192 tokens,
-final M1 and B1-B4, the runtime-only 8B feasibility gate, and train/validation only. The source is
-committed at `6a0d0accddb0098f713796ca65750ca162a7daeb`, and no final real-data/model job has run. The
-complete hash-manifested Qwen3-Embedding-8B snapshot was transferred to the DGX. A subsequent
-host-side preflight exposed missing host NumPy before any jobs were submitted; commit `fe30dda`
-moved this package-dependent gate inside the NVIDIA container. After that fix, synthetic 8B
-smoke job 423 passed on `dgit00038673`, but foundation job 424 failed before scientific execution
-on `dgit00038674` because Pyxis could not create `/run/user/2051`; downstream jobs 425–427 were
-canceled. Pin Prompt 3 container work to the verified node until the second node is repaired. M2,
-M3, and held-out evaluation remain prohibited.
+3 source implements the new versioned final cohort, Qwen3-Embedding-0.6B at 8,192 tokens, final M1
+and B1-B4, the runtime-only 8B feasibility gate, and train/validation only. The complete
+hash-manifested Qwen3-Embedding-8B snapshot is on the DGX. Commit `fe30dda` moved package-dependent
+preflight into the NVIDIA container, and `f45e61c` pinned Prompt 3 jobs to verified node
+`dgit00038673`. In the fresh chain, synthetic 8B smoke job 429 passed, but foundation job 430 found
+multiple official label rows at the same patient/task/prediction time in anemia and CheXpert;
+dependent jobs 431–433 were canceled. The governed aggregate audit supports excluding every such
+duplicate-time group before ranking, regardless of label values. That fail-closed clarification is
+locally validated and must be present at the DGX source commit before Prompt 3 is rerun. M2, M3,
+and held-out evaluation remain prohibited.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those

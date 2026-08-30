@@ -32,6 +32,9 @@ Status date: 2026-08-29. This is a concise operational index; the final August 1
   prediction times and mapping a SHA-256 digest of dataset/release version, task, official split,
   patient, frozen seed, and the sorted eligible prediction-time-index domain to one index. The
   rule is independent of outcome, history, record length, and model results.
+- Before ranking, exclude every patient/task/prediction-time group represented by multiple official
+  label rows, regardless of whether their label values agree. This prevents outcome- or row-order-
+  dependent adjudication; patients with no remaining singleton time are excluded for that task.
 - The primary C0-C3 comparison uses identical retained clinical events and order:
   - C0 order only: no elapsed-time labels;
   - C1 correct compact prediction-relative labels;

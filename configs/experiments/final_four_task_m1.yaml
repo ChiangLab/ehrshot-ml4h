@@ -23,10 +23,13 @@ dataset_release:
 selection:
   frozen_seed: 20260815
   maximum_instances_per_patient_task: 1
+  duplicate_prediction_time_policy: exclude_entire_group_regardless_of_label_values
   policy: >-
-    Sort unique eligible official prediction times for each task/split/patient, hash the
-    dataset release, task, canonical split, patient, frozen seed, and zero-based sorted
-    prediction-time index, and retain the candidate with the minimum SHA-256 rank.
+    First exclude every patient/task/prediction-time group represented by more than one
+    official label row, regardless of whether its label values agree. Sort the remaining
+    eligible official prediction times for each task/split/patient, hash the dataset release,
+    task, canonical split, patient, frozen seed, and zero-based sorted prediction-time index,
+    and retain the candidate with the minimum SHA-256 rank.
   independent_of:
     - outcome
     - event_history

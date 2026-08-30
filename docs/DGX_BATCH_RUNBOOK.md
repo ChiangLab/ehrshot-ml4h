@@ -12,6 +12,10 @@
   while foundation job 424 failed before scientific execution when `dgit00038674` could not create
   the Pyxis runtime directory `/run/user/2051`. Do not remove the node constraint until the second
   node's container runtime is repaired and independently verified.
+- Foundation job 430 subsequently reached governed cohort construction on the verified node and
+  failed closed on multiple official label rows sharing a patient/task/prediction time. Jobs
+  431–433 were canceled. The reviewed repair excludes all such groups before selection regardless
+  of label values; do not resubmit until its commit is pulled onto the DGX.
 - A valid run needs scheduler completion when accounting is available, a clean log, a job-specific
   COMPLETE sentinel with exit status 0, and semantic postconditions. This site has disabled
   historical `sacct`; in that case require disappearance from `squeue` plus the durable evidence.
@@ -515,13 +519,13 @@ test -s "${RESULTS}"
 test -s outputs/private/executed_notebooks/05_final_foundation_review.ipynb
 test -s outputs/private/executed_notebooks/06_final_m1_results.ipynb
 
-srun --partition=batch --cpus-per-task=2 --mem=8G --time=00:30:00 \
+srun --partition=batch --nodelist=dgit00038673 --cpus-per-task=2 --mem=8G --time=00:30:00 \
   --container-image=/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh \
   --container-mounts=/data:/data \
   --container-workdir="$PWD" \
   env PYTHONPATH=src .venv/bin/python scripts/review_final_foundation.py \
     --report "${FOUNDATION}" --private-postconditions
-srun --partition=batch --cpus-per-task=2 --mem=8G --time=00:30:00 \
+srun --partition=batch --nodelist=dgit00038673 --cpus-per-task=2 --mem=8G --time=00:30:00 \
   --container-image=/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh \
   --container-mounts=/data:/data \
   --container-workdir="$PWD" \

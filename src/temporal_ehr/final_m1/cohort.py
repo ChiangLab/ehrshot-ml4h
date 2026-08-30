@@ -92,8 +92,11 @@ def _validated_unique_times(
     task: Mapping[str, Any],
     split_map: Mapping[int, str],
     allowed_splits: tuple[str, ...],
-) -> dict[tuple[int, str], list[tuple[Any, bool]]]:
-    """Collapse outcome-identical duplicate times and reject ambiguous official labels."""
+    minimum_report_group_size: int,
+) -> tuple[dict[tuple[int, str], list[tuple[Any, bool]]], list[dict[str, Any]]]:
+    """Exclude every duplicated patient/time group before outcome-independent ranking."""
+    if minimum_report_group_size < 2:
+        raise ValueError("The aggregate privacy threshold must be at least two.")
     field = str(task["label_field"])
     grouped: defaultdict[tuple[int, str], defaultdict[Any, list[bool]]] = defaultdict(
         lambda: defaultdict(list)
@@ -113,16 +116,64 @@ def _validated_unique_times(
             raise ContractError(f"{task_name}: train/validation label is null or outside its official domain.")
         grouped[(int(subject), split)][prediction_time].append(binary_target(value, task))
     result: dict[tuple[int, str], list[tuple[Any, bool]]] = {}
+    audit_by_split: defaultdict[str, Counter[str]] = defaultdict(Counter)
     for key, by_time in grouped.items():
+        _, split = key
+        audit = audit_by_split[split]
+        audit["patients"] += 1
+        audit["official_prediction_time_groups"] += len(by_time)
+        audit["official_label_rows"] += sum(len(outcomes) for outcomes in by_time.values())
+        audit["maximum_rows_at_one_prediction_time"] = max(
+            audit["maximum_rows_at_one_prediction_time"],
+            max(len(outcomes) for outcomes in by_time.values()),
+        )
+        duplicated = [outcomes for outcomes in by_time.values() if len(outcomes) > 1]
+        audit["duplicate_prediction_time_groups_excluded"] += len(duplicated)
+        audit["conflicting_binary_target_groups_observed"] += sum(
+            len(set(outcomes)) > 1 for outcomes in duplicated
+        )
+        if duplicated:
+            audit["patients_with_duplicate_prediction_times"] += 1
         unique: list[tuple[Any, bool]] = []
         for prediction_time, outcomes in sorted(by_time.items()):
-            if len(set(outcomes)) != 1:
-                raise ContractError(
-                    f"{task_name}: one official patient/time has conflicting binary targets; selection is ambiguous."
-                )
+            if len(outcomes) > 1:
+                continue
             unique.append((prediction_time, outcomes[0]))
-        result[key] = unique
-    return result
+        if unique:
+            result[key] = unique
+        else:
+            audit["patients_with_no_eligible_time_after_duplicate_exclusion"] += 1
+
+    def suppress(value: int) -> int | str:
+        return value if value == 0 or value >= minimum_report_group_size else f"<{minimum_report_group_size}"
+
+    audit_rows: list[dict[str, Any]] = []
+    for split in allowed_splits:
+        audit = audit_by_split[split]
+        audit_rows.append(
+            {
+                "task": task_name,
+                "split": split,
+                "official_label_rows": int(audit["official_label_rows"]),
+                "official_prediction_time_groups": int(audit["official_prediction_time_groups"]),
+                "duplicate_prediction_time_groups_excluded": suppress(
+                    int(audit["duplicate_prediction_time_groups_excluded"])
+                ),
+                "conflicting_binary_target_groups_observed": suppress(
+                    int(audit["conflicting_binary_target_groups_observed"])
+                ),
+                "patients_with_duplicate_prediction_times": suppress(
+                    int(audit["patients_with_duplicate_prediction_times"])
+                ),
+                "patients_with_no_eligible_time_after_duplicate_exclusion": suppress(
+                    int(audit["patients_with_no_eligible_time_after_duplicate_exclusion"])
+                ),
+                "maximum_rows_at_one_prediction_time": int(
+                    audit["maximum_rows_at_one_prediction_time"]
+                ),
+            }
+        )
+    return result, audit_rows
 
 
 def _aggregate_summary(rows: list[dict[str, Any]], spec: FinalM1Authorization) -> dict[str, Any]:
@@ -188,19 +239,23 @@ def build_final_cohort(
     seed = int(spec.raw["selection"]["frozen_seed"])
     selected: list[dict[str, Any]] = []
     source_hashes: dict[str, str] = {}
+    duplicate_time_audit: list[dict[str, Any]] = []
+    minimum_report_group_size = int(spec.raw["minimum_report_group_size"])
     for task_name in spec.tasks:
         task = registry["tasks"][task_name]
         field = str(task["label_field"])
         suffix = f"labels/{task_name}/labels.parquet"
         table = read_parquet_member(asset_root, suffix, ["subject_id", "prediction_time", field])
         source_hashes[task_name] = _zip_member_sha256(asset_root, suffix)
-        grouped = _validated_unique_times(
+        grouped, task_duplicate_time_audit = _validated_unique_times(
             table,
             task_name=task_name,
             task=task,
             split_map=split_map,
             allowed_splits=spec.splits,
+            minimum_report_group_size=minimum_report_group_size,
         )
+        duplicate_time_audit.extend(task_duplicate_time_audit)
         for (subject_id, split), eligible in grouped.items():
             ranked = [
                 (
@@ -273,7 +328,14 @@ def build_final_cohort(
         "dataset_release_id": release_id,
         "selection_seed": seed,
         "selection_policy": spec.raw["selection"]["policy"],
+        "duplicate_prediction_time_policy": spec.raw["selection"][
+            "duplicate_prediction_time_policy"
+        ],
+        "duplicate_prediction_time_groups_excluded_before_ranking": True,
+        "duplicate_group_exclusion_uses_label_values": False,
+        "official_label_duplicate_time_audit": duplicate_time_audit,
         "selection_uses_outcome": False,
+        "selection_uses_source_row_order": False,
         "selection_uses_history_or_record_length": False,
         "selection_uses_model_result": False,
         "source_label_artifact_hashes": source_hashes,

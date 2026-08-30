@@ -225,6 +225,8 @@ def load_final_m1_authorization(path: Path, *, repository_root: Path | None = No
         not isinstance(selection, dict)
         or int(selection.get("frozen_seed", -1)) != 20260815
         or int(selection.get("maximum_instances_per_patient_task", 0)) != 1
+        or selection.get("duplicate_prediction_time_policy")
+        != "exclude_entire_group_regardless_of_label_values"
         or set(selection.get("independent_of", ()))
         != {"outcome", "event_history", "record_length", "model_result"}
     ):

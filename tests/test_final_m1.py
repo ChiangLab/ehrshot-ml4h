@@ -19,7 +19,7 @@ from scripts.review_final_m1_results import validate_final_m1_report
 from temporal_ehr.data.contracts import ContractError
 from temporal_ehr.data.history import HistoryInstance
 from temporal_ehr.experiments import FINAL_TASKS, load_final_m1_authorization
-from temporal_ehr.final_m1.cohort import build_final_cohort, selection_rank
+from temporal_ehr.final_m1.cohort import _validated_unique_times, build_final_cohort, selection_rank
 from temporal_ehr.final_m1.embedding import load_final_condition_embeddings
 from temporal_ehr.final_m1.foundation import _metadata_rows, validate_outcome_contracts
 from temporal_ehr.final_m1.gates import require_prompt3_hard_gates
@@ -42,7 +42,12 @@ def _parquet_bytes(table: pa.Table) -> bytes:
     return buffer.getvalue()
 
 
-def _write_synthetic_assets(root: Path, *, invert_outcomes: bool = False) -> None:
+def _write_synthetic_assets(
+    root: Path,
+    *,
+    invert_outcomes: bool = False,
+    add_duplicate_prediction_time: bool = False,
+) -> None:
     root.mkdir(parents=True)
     times = [dt.datetime(2020, 1, 1), dt.datetime(2021, 1, 1), dt.datetime(2022, 1, 1)]
     split_table = pa.table(
@@ -72,6 +77,10 @@ def _write_synthetic_assets(root: Path, *, invert_outcomes: bool = False) -> Non
                     values = [8192, 1, 2, 8192, 1, 2]
                 if invert_outcomes:
                     values = list(reversed(values))
+            if add_duplicate_prediction_time:
+                subjects.append(101)
+                prediction_times.append(times[0])
+                values.append(values[0])
             table = pa.table(
                 {
                     "subject_id": pa.array(subjects, type=pa.int64()),
@@ -137,8 +146,8 @@ def test_final_cohort_is_one_per_patient_task_outcome_independent_and_excludes_t
     registry = yaml.safe_load(Path("configs/tasks.yaml").read_text(encoding="utf-8"))
     assets_a = tmp_path / "assets-a"
     assets_b = tmp_path / "assets-b"
-    _write_synthetic_assets(assets_a)
-    _write_synthetic_assets(assets_b, invert_outcomes=True)
+    _write_synthetic_assets(assets_a, add_duplicate_prediction_time=True)
+    _write_synthetic_assets(assets_b, invert_outcomes=True, add_duplicate_prediction_time=True)
     spec_a = _spec_at(tmp_path / "run-a")
     spec_b = _spec_at(tmp_path / "run-b")
     report_a = build_final_cohort(asset_root=assets_a, registry=registry, spec=spec_a)
@@ -152,9 +161,74 @@ def test_final_cohort_is_one_per_patient_task_outcome_independent_and_excludes_t
     ranks_b = {(row["subject_id"], row["task"]): row["selection_hash"] for row in rows_b}
     assert ranks_a == ranks_b
     assert report_a["test_instances_selected"] == report_b["test_instances_selected"] == 0
+    assert report_a["duplicate_prediction_time_groups_excluded_before_ranking"] is True
+    assert report_a["duplicate_group_exclusion_uses_label_values"] is False
+    assert report_a["selection_uses_source_row_order"] is False
+    assert all(
+        row["eligible_prediction_time_count"] == 2
+        for row in rows_a
+        if row["subject_id"] == 101
+    )
+    duplicate_audit = report_a["official_label_duplicate_time_audit"]
+    assert len(duplicate_audit) == 8
+    assert all(
+        item["duplicate_prediction_time_groups_excluded"] == "<20"
+        for item in duplicate_audit
+        if item["split"] == "train"
+    )
     with pytest.raises(ContractError, match=r"hash-mismatched|stale"):
         spec_a.cohort_path.write_bytes(b"drift")
         build_final_cohort(asset_root=assets_a, registry=registry, spec=spec_a)
+
+
+def test_duplicate_official_times_are_excluded_without_outcome_or_row_order_dependence() -> None:
+    registry = yaml.safe_load(Path("configs/tasks.yaml").read_text(encoding="utf-8"))
+    task = registry["tasks"]["lab_anemia"]
+    first = dt.datetime(2020, 1, 1)
+    second = dt.datetime(2021, 1, 1)
+    third = dt.datetime(2022, 1, 1)
+    fourth = dt.datetime(2023, 1, 1)
+
+    def table(values: list[int], *, reverse: bool = False) -> pa.Table:
+        rows = [
+            {"subject_id": 101, "prediction_time": first, "integer_value": values[0]},
+            {"subject_id": 101, "prediction_time": first, "integer_value": values[1]},
+            {"subject_id": 101, "prediction_time": second, "integer_value": values[2]},
+            {"subject_id": 101, "prediction_time": second, "integer_value": values[3]},
+            {"subject_id": 101, "prediction_time": third, "integer_value": values[4]},
+            {"subject_id": 202, "prediction_time": fourth, "integer_value": values[5]},
+            {"subject_id": 202, "prediction_time": fourth, "integer_value": values[6]},
+        ]
+        if reverse:
+            rows.reverse()
+        return pa.Table.from_pylist(rows)
+
+    grouped_a, audit_a = _validated_unique_times(
+        table([0, 0, 0, 1, 0, 0, 1]),
+        task_name="lab_anemia",
+        task=task,
+        split_map={101: "train", 202: "validation"},
+        allowed_splits=("train", "validation"),
+        minimum_report_group_size=20,
+    )
+    grouped_b, audit_b = _validated_unique_times(
+        table([1, 0, 1, 1, 1, 1, 0], reverse=True),
+        task_name="lab_anemia",
+        task=task,
+        split_map={101: "train", 202: "validation"},
+        allowed_splits=("train", "validation"),
+        minimum_report_group_size=20,
+    )
+
+    assert list(grouped_a) == list(grouped_b) == [(101, "train")]
+    assert [item[0] for item in grouped_a[(101, "train")]] == [third]
+    assert [item[0] for item in grouped_b[(101, "train")]] == [third]
+    assert grouped_a[(101, "train")][0][1] is False
+    assert grouped_b[(101, "train")][0][1] is True
+    assert [item["duplicate_prediction_time_groups_excluded"] for item in audit_a] == ["<20", "<20"]
+    assert [item["duplicate_prediction_time_groups_excluded"] for item in audit_b] == ["<20", "<20"]
+    assert audit_a[1]["patients_with_no_eligible_time_after_duplicate_exclusion"] == "<20"
+    assert audit_b[1]["patients_with_no_eligible_time_after_duplicate_exclusion"] == "<20"
 
 
 def test_empty_history_still_has_complete_c0_c1_embedding_metadata() -> None:
