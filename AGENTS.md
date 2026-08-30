@@ -36,9 +36,12 @@ three-task engineering PILOT. A pilot cohort or cache must never satisfy a final
 final M1 and B1-B4, the runtime-only 8B feasibility gate, and train/validation only. The source is
 committed at `6a0d0accddb0098f713796ca65750ca162a7daeb`, and no final real-data/model job has run. The
 complete hash-manifested Qwen3-Embedding-8B snapshot was transferred to the DGX. A subsequent
-host-side preflight exposed missing host NumPy before any jobs were submitted; the uncommitted
-hotfix runs this package-dependent gate inside the NVIDIA container. Commit/push/pull that hotfix
-before submitting the Prompt 3 chain. M2, M3, and held-out evaluation remain prohibited.
+host-side preflight exposed missing host NumPy before any jobs were submitted; commit `fe30dda`
+moved this package-dependent gate inside the NVIDIA container. After that fix, synthetic 8B
+smoke job 423 passed on `dgit00038673`, but foundation job 424 failed before scientific execution
+on `dgit00038674` because Pyxis could not create `/run/user/2051`; downstream jobs 425–427 were
+canceled. Pin Prompt 3 container work to the verified node until the second node is repaired. M2,
+M3, and held-out evaluation remain prohibited.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those

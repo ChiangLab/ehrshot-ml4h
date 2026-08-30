@@ -2,6 +2,7 @@
 #SBATCH --job-name=qwen3e-8b-smoke
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --partition=batch
+#SBATCH --nodelist=dgit00038673
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=02:00:00

@@ -435,6 +435,7 @@ def test_final_slurm_chain_is_containerized_task_mapped_and_atomic() -> None:
     scripts = {name: (Path("scripts/slurm") / name).read_text(encoding="utf-8") for name in names}
     for text in scripts.values():
         assert "#SBATCH --partition=batch" in text
+        assert "#SBATCH --nodelist=dgit00038673" in text
         assert "final_initialize" in text and "final_container_python" in text and "final_mark_success" in text
     assert "#SBATCH --array=0-3%1" in scripts["22_final_m1_embed_task_array.sbatch"]
     assert "SLURM_ARRAY_JOB_ID" in scripts["22_final_m1_embed_task_array.sbatch"]
@@ -448,12 +449,15 @@ def test_final_slurm_chain_is_containerized_task_mapped_and_atomic() -> None:
     assert "git status --porcelain" in submit
     assert "Qwen3-Embedding-8B" in submit
     assert "--job-name=tehr-prompt3-preflight" in submit
+    assert '--nodelist="${EXECUTION_NODE}"' in submit
     assert '--container-image="${CONTAINER_IMAGE}"' in submit
     assert "env PYTHONPATH=src .venv/bin/python scripts/run_final_m1.py hard-gates" in submit
     assert 'afterok:${FOUNDATION_JOB_ID}:${SMOKE_8B_JOB_ID}' in submit
     assert 'afterok:${THROUGHPUT_JOB_ID}' in submit
     assert 'afterok:${EMBED_ARRAY_JOB_ID}' in submit
     assert "Refusing to overwrite existing submission record" in submit
+    smoke_8b = Path("scripts/slurm/06_smoke_qwen_8b.sbatch").read_text(encoding="utf-8")
+    assert "#SBATCH --nodelist=dgit00038673" in smoke_8b
 
 
 def test_final_report_reviewer_fails_closed_on_test_or_row_content() -> None:

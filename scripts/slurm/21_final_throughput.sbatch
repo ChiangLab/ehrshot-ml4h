@@ -2,6 +2,7 @@
 #SBATCH --job-name=tehr-final-throughput
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --partition=batch
+#SBATCH --nodelist=dgit00038673
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=110G
 #SBATCH --time=04:00:00

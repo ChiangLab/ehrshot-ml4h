@@ -9,6 +9,7 @@ EVENT_PATH="${EHRSHOT_DATA_PATH:?Set EHRSHOT_DATA_PATH before submission}"
 PRIMARY_MODEL="${MODEL_ROOT}/Qwen3-Embedding-0.6B"
 CONFIRMATORY_MODEL="${MODEL_ROOT}/Qwen3-Embedding-8B"
 CONTAINER_IMAGE="/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh"
+EXECUTION_NODE="${TEMPORAL_EHR_EXECUTION_NODE:-dgit00038673}"
 
 cd "${PROJECT_ROOT}"
 
@@ -48,6 +49,7 @@ fi
 
 srun \
   --partition=batch \
+  --nodelist="${EXECUTION_NODE}" \
   --job-name=tehr-prompt3-preflight \
   --cpus-per-task=2 \
   --mem=8G \

@@ -64,11 +64,14 @@ Status date: 2026-08-29
   bootstrap reporting, semantic validators, aggregate notebooks, and privacy-safe handoff support.
 - Local validation passed 92 synthetic tests, Ruff, shell syntax, context, and privacy gates. No real
   EHRSHOT row, model, final metric, M2/M3 path, or held-out test performance was accessed locally.
-- Governed Prompt 3 jobs have not been submitted. The complete 15 GB 8B snapshot was transferred
-  from the Mac after DGX download job 421 stalled and was canceled; it still requires the
-  dependency-gated synthetic smoke test.
-- Before submission, the helper's host-side hard-gate CLI failed because NumPy exists in the NVIDIA
-  container rather than the DGX host environment. The locally validated uncommitted hotfix moves
-  that preflight into a short batch-partition container step; it must be committed, pushed, and
-  pulled before submission. Do not install or override system Python. M2, M3, and held-out
-  evaluation remain out of scope.
+- The complete 15 GB 8B snapshot was transferred from the Mac after DGX download job 421 stalled
+  and was canceled. Before scientific submission, the helper's host-side hard-gate CLI failed
+  because NumPy exists in the NVIDIA container rather than the DGX host environment; no job was
+  created by that attempt. Do not install or override system Python.
+- Commit `fe30dda5ed9537633fdff16dfb5ced0f562d41b7` fixed the preflight boundary. Synthetic 8B smoke
+  job 423 then passed on `dgit00038673` with local-only 8,192-token inference, 4,096-dimensional
+  finite FP32-normalized embeddings, and no patient data. Foundation job 424 was scheduled on
+  `dgit00038674` and failed before scientific execution because Pyxis could not create
+  `/run/user/2051`; downstream jobs 425–427 were canceled and no final aggregate was created. A
+  verified-node hotfix now pins the fresh Prompt 3 chain to `dgit00038673` pending commit/pull/run.
+  M2, M3, and held-out evaluation remain out of scope.

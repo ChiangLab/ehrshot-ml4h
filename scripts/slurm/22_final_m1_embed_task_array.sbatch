@@ -2,6 +2,7 @@
 #SBATCH --job-name=tehr-final-m1-embed
 #SBATCH --output=slurm-%x-%A_%a.out
 #SBATCH --partition=batch
+#SBATCH --nodelist=dgit00038673
 #SBATCH --array=0-3%1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=110G

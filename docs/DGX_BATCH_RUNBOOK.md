@@ -8,6 +8,10 @@
 - Code lives in `/data/shared73/projects/wdelery/temporal-ehr-ml4h`; governed data, private outputs,
   environments, and model assets stay on DGX storage and outside Git.
 - Use `sbatch --partition=batch` for formal jobs. Do not run heavy workloads on the login node.
+- Prompt 3 container jobs are pinned to `dgit00038673`: synthetic 8B smoke job 423 passed there,
+  while foundation job 424 failed before scientific execution when `dgit00038674` could not create
+  the Pyxis runtime directory `/run/user/2051`. Do not remove the node constraint until the second
+  node's container runtime is repaired and independently verified.
 - A valid run needs scheduler completion when accounting is available, a clean log, a job-specific
   COMPLETE sentinel with exit status 0, and semantic postconditions. This site has disabled
   historical `sacct`; in that case require disappearance from `squeue` plus the durable evidence.
