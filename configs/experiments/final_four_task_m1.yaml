@@ -1,0 +1,146 @@
+version: 1
+experiment_id: locked_four_task_m1_v1
+mode: FINAL_VALIDATION
+status: LOCKED
+approach: M1_direct_serialization
+authorized_on: 2026-08-29
+panel_config: configs/experiments/locked_panel.yaml
+tasks:
+  - lab_anemia
+  - guo_readmission
+  - new_hypertension
+  - chexpert
+splits:
+  - train
+  - validation
+
+dataset_release:
+  name: EHRSHOT
+  release_id: ehrshot_a7cfb529_2026-08-07
+  official_repository_commit: a7cfb5298f99504740387bad8b55b9c9fa4578a3
+  event_data_sha256: 7a1d7d2562d065f2cac5b22f9f786ed33477b0982bdbb105db69d48b69817a7e
+
+selection:
+  frozen_seed: 20260815
+  maximum_instances_per_patient_task: 1
+  policy: >-
+    Sort unique eligible official prediction times for each task/split/patient, hash the
+    dataset release, task, canonical split, patient, frozen seed, and zero-based sorted
+    prediction-time index, and retain the candidate with the minimum SHA-256 rank.
+  independent_of:
+    - outcome
+    - event_history
+    - record_length
+    - model_result
+
+cohort_path: outputs/private/final/locked_four_task_m1_v1/cohort/final_panel_cohort_v1.parquet
+private_root: outputs/private/final/locked_four_task_m1_v1
+aggregate_root: reports/generated/final/locked_four_task_m1_v1
+
+models:
+  primary:
+    repository: Qwen/Qwen3-Embedding-0.6B
+    directory_name: Qwen3-Embedding-0.6B
+    frozen: true
+    normalize_embeddings: true
+    full_dimension: true
+    batch_size: 4
+  confirmatory:
+    repository: Qwen/Qwen3-Embedding-8B
+    directory_name: Qwen3-Embedding-8B
+    frozen: true
+    normalize_embeddings: true
+    full_dimension: true
+    batch_size: 1
+
+token_budget: 8192
+logistic_seed: 20260815
+bootstrap_seed: 20260818
+bootstrap_replicates: 2000
+c3_seeds:
+  - 20260815
+  - 20260816
+  - 20260817
+regularization_grid:
+  - 0.01
+  - 0.1
+  - 1.0
+  - 10.0
+minimum_report_group_size: 20
+
+embedding_instructions:
+  lab_anemia: >-
+    Represent this strictly pre-prediction longitudinal record for predicting
+    whether the next qualifying hemoglobin result will be abnormal.
+  guo_readmission: >-
+    Represent this strictly pre-prediction longitudinal record for predicting
+    whether the patient will be readmitted within 30 days.
+  new_hypertension: >-
+    Represent this strictly pre-prediction longitudinal record for predicting
+    whether a first hypertension diagnosis will occur within one year.
+  chexpert: >-
+    Represent this strictly pre-prediction longitudinal record for predicting
+    whether the chest radiograph will contain a finding rather than No Finding.
+
+outcome_contracts:
+  lab_anemia:
+    outcome: next qualifying hemoglobin result is abnormal
+    not_outcome: incident anemia diagnosis
+    official_timing: immediately before the qualifying result is recorded
+    horizon: next qualifying result
+  guo_readmission:
+    outcome: readmission within 30 days
+    not_outcome: evidence from an admission at or after prediction time in the input
+    official_timing: 11:59 PM on the admission day
+    horizon: 30 days
+  new_hypertension:
+    outcome: first hypertension diagnosis within one year
+    not_outcome: prevalent hypertension relabeled as incident by this project
+    official_timing: 11:59 PM on the discharge day
+    horizon: 365 days
+  chexpert:
+    outcome: radiograph finding rather than No Finding
+    not_outcome: radiology report or finding at or after prediction time in the input
+    official_timing: 24 hours before the radiology report is recorded
+    horizon: official CheXpert finding label
+
+representations:
+  baselines:
+    - B1_latest_window_only
+    - B2_latest_code_occurrence
+    - B3_code_count
+    - B4_training_prevalence
+  temporal_conditions:
+    - C0_order_only
+    - C1_correct_compact_time
+    - C2_reversed_earlier_gaps
+    - C3_shuffled_earlier_time_labels
+  content_matched_c0_c3: true
+  perturb_label_indices_only: true
+
+throughput_gate:
+  contingency_multiplier: 2.0
+  task_job_time_limit_seconds: 43200
+  minimum_runtime_reserve_seconds: 900
+  feasibility_inputs_use_outcomes: false
+  confirmatory_priority:
+    - C1_correct_compact_time
+    - C3_shuffled_earlier_time_labels
+    - B1_latest_window_only
+    - B2_latest_code_occurrence
+
+preconditions:
+  recovery_job_id: 408
+  pilot_source_commit: ae35c50982ed56cee9a90875cdc98a05f63ffd54
+  pilot_report_sha256: 6b2d812cf430ed186fae00615e3b302dd8da58294b23902a74ef514c4047494d
+  pilot_protocol_decision: PILOT_COMPLETE_FINAL_PANEL_UNCHANGED
+  final_panel_frozen_before_pilot_performance: true
+
+prohibitions:
+  test_split: true
+  test_predictions_or_performance: true
+  model_download_during_scientific_jobs: true
+  pilot_artifact_reuse: true
+  overwrite_final_artifacts: true
+  m2: true
+  m3: true

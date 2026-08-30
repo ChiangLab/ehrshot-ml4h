@@ -1,11 +1,10 @@
 # Temporal EHR ML4H
 
 This repository implements **Does Time Earn Its Tokens? Recurrence, Temporal Alignment, and
-Context Cost in Frozen Longitudinal EHR Embeddings**. The current code audits the real downloaded
-EHRSHOT event table, validates all 15 task-label files and canonical patient splits, selects a
-patient-balanced three-task pilot cohort, audits strict prediction-time censoring, and implements
-protocol-aligned prediction-relative serialization plus a DGX-only complete engineering-pilot
-pipeline. No pilot embedding result has been generated in the source checkout.
+Context Cost in Frozen Longitudinal EHR Embeddings**. It audits EHRSHOT assets, validates official
+labels and splits, implements prediction-relative serialization, and provides governed DGX-only
+pipelines for the completed three-task engineering pilot and the prospectively locked four-task M1
+validation experiment. Real data, model execution, and held-out evaluation are never run locally.
 
 Repository code is MIT-licensed. That license does not apply to EHRSHOT data or other governed
 assets, which remain subject to their official DUA and redistribution restrictions.
@@ -173,6 +172,27 @@ bash scripts/slurm/submit_pilot_chain.sh
 The authoritative setup, captured-job-ID, monitoring, semantic-verification, privacy-safe handoff,
 VPN, and model-transfer commands are in [the DGX batch runbook](docs/DGX_BATCH_RUNBOOK.md).
 M2, M3, Qwen 8B, the final-panel cohort, and held-out evaluation remain prohibited.
+
+## Locked four-task foundation and M1 validation
+
+Prompt 3 source is implemented around the exact locked panel: `lab_anemia`, `guo_readmission`,
+`new_hypertension`, and `chexpert`. The final namespace is distinct from all pilot artifacts. It
+builds one deterministic official label instance per patient and task, applies strict pre-`T`
+censoring and exact seven-field deduplication, creates row-mirrored patient-window metadata, and
+runs frozen Qwen3-Embedding-0.6B M1 at 8,192 tokens with B1-B4 and content-matched C0-C3.
+
+The separate throughput gate benchmarks both the 0.6B primary encoder and the pinned 8B encoder.
+Only runtime and memory, with a 2x time contingency, may admit the prespecified 8B confirmatory
+prefix. Task-level embedding jobs are resumable at immutable condition-level cache boundaries.
+All fitting and reporting remain train/validation-only; M2, M3, and held-out test evaluation are
+out of scope. After a reviewed clean commit is present on the DGX, use:
+
+```bash
+bash scripts/slurm/submit_prompt3_execution.sh
+```
+
+Exact prerequisites, dependency graph, verification commands, safe handoff, and 8B download
+fallbacks are in [the DGX batch runbook](docs/DGX_BATCH_RUNBOOK.md).
 
 ## Execution and governance
 

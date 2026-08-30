@@ -2,7 +2,9 @@
 
 Status date: 2026-08-29
 
-Execute `prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md` in the clean Mac checkout.
-Treat the copied Prompt 2 aggregate only as engineering evidence and preserve the prospectively
-locked four-task panel. Implement and validate source locally without real data/model execution,
-M2, M3, or test access. Do not submit DGX jobs until Prompt 3 finishes with tested exact commands.
+Review the uncommitted implementation of
+`prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md`, then create and push one clean source
+commit. On the DGX, install and smoke-test the complete pinned Qwen3-Embedding-8B snapshot before
+submitting `scripts/slurm/submit_prompt3_execution.sh`. Prompt 3 stays active until all real jobs,
+atomic sentinels, semantic validators, hashes, and the privacy-safe aggregate handoff pass. Do not
+run M2, M3, or held-out test evaluation.

@@ -30,5 +30,12 @@ is an operational sensitivity analysis and reports evidence displaced by tempora
 separate `latest_window_only` and `latest_code_occurrence` baselines reduce information and are not
 rows of the C0–C3 causal contrast.
 
+Final M1 uses an 8,192-token budget. Empty pre-`T` histories remain valid for instruction-only C0
+and C1 inputs but are explicitly unavailable for information-reduction or perturbation conditions.
+C2 and C3 alter displayed label indices only: clinical event arrays and their order never move.
+Each immutable model/condition cache has a patient-window metadata table with exactly one row per
+embedding row and records input, model, tokenizer, configuration, and vector hashes. Pilot cache
+keys and paths are categorically ineligible for the final namespace.
+
 Patient-level manifests contain hashes only and remain under `outputs/private/`. Aggregate review
 reports remain under `reports/generated/`. Neither location is tracked by Git.

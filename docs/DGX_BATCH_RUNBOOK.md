@@ -8,8 +8,10 @@
 - Code lives in `/data/shared73/projects/wdelery/temporal-ehr-ml4h`; governed data, private outputs,
   environments, and model assets stay on DGX storage and outside Git.
 - Use `sbatch --partition=batch` for formal jobs. Do not run heavy workloads on the login node.
-- A valid run needs `sacct` state COMPLETED, exit `0:0`, a clean log, a job-specific COMPLETE
-  sentinel, and semantic postconditions. File existence alone is never success.
+- A valid run needs scheduler completion when accounting is available, a clean log, a job-specific
+  COMPLETE sentinel with exit status 0, and semantic postconditions. This site has disabled
+  historical `sacct`; in that case require disappearance from `squeue` plus the durable evidence.
+  File existence alone is never success.
 
 ## Evidence-bound recovery of job 407
 
@@ -324,3 +326,234 @@ rsync -avP \
 
 Remain on VPN through the `rsync`, then disconnect. Do not copy the patient-window index, prepared
 texts, predictions, embeddings, cache files, executed notebook, or private sentinels to the Mac.
+
+## Prompt 3 locked four-task foundation and M1 validation
+
+The source must first be reviewed, committed, and pushed from the Mac; the implementation task
+itself intentionally leaves it uncommitted. Connect to MedNet VPN, then use a normal Mac terminal:
+
+```bash
+ssh wdelery@10.45.62.90
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+git status --short --branch
+git pull --ff-only origin main
+
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
+export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
+```
+
+The `git status` output must be clean and the pulled commit must contain Prompt 3. Verify governed
+prerequisites without printing rows:
+
+```bash
+test -s "${EHRSHOT_DATA_PATH}"
+test -d "${EHRSHOT_ASSET_ROOT}"
+test -s reports/generated/handoff/project_handoff.json
+test -s reports/generated/handoff/pilot_handoff.json
+test -s reports/generated/pilot/three_task_m1_engineering_pilot_v1/pilot_results.json
+for size in 0.6B 8B; do
+  test -s "${TEMPORAL_EHR_MODEL_ROOT}/Qwen3-Embedding-${size}/PINNED_REVISION.txt"
+  test -s "${TEMPORAL_EHR_MODEL_ROOT}/Qwen3-Embedding-${size}/MODEL_ARTIFACT_MANIFEST.json"
+done
+PYTHONPATH=src .venv/bin/python scripts/run_final_m1.py hard-gates
+```
+
+An old 8B directory containing only tokenizer files is not a model snapshot. If the 8B manifest is
+missing, or the prior directory is only about 16 MiB, submit the resumable full snapshot download:
+
+```bash
+DOWNLOAD_8B_JOB_ID="$(sbatch --parsable --partition=batch --export=ALL scripts/slurm/04_download_qwen_8b.sbatch)"
+DOWNLOAD_8B_JOB_ID="${DOWNLOAD_8B_JOB_ID%%;*}"
+echo "DOWNLOAD_8B_JOB_ID=${DOWNLOAD_8B_JOB_ID}"
+squeue -j "${DOWNLOAD_8B_JOB_ID}" -o "%.18i %.12P %.26j %.2t %.10M %R"
+```
+
+Once it runs, inspect `slurm-qwen3e-8b-download-${DOWNLOAD_8B_JOB_ID}.out`. If the DGX cannot reach
+Hugging Face, exit SSH, disconnect VPN so the Mac has ordinary internet access, and run:
+
+```bash
+cd /Users/williamdelery/code/temporal-ehr-ml4h
+source .venv/bin/activate
+PYTHONPATH=src .venv/bin/python scripts/dgx/download_qwen_embeddings.py \
+  --models 8B \
+  --output-root /Users/williamdelery/Downloads/qwen3-embedding
+```
+
+Reconnect to MedNet VPN and transfer the complete directory. This is a large model transfer; keep
+the Mac awake and let `rsync` resume if the VPN drops:
+
+```bash
+caffeinate -i rsync -avP --checksum \
+  /Users/williamdelery/Downloads/qwen3-embedding/Qwen3-Embedding-8B/ \
+  wdelery@10.45.62.90:/data/shared73/projects/wdelery/model_cache/qwen3-embedding/Qwen3-Embedding-8B/
+```
+
+Do not hand-edit or remove partial snapshot files. The downloader resumes into the directory and
+rewrites a complete artifact manifest; the smoke job verifies every listed file and hash.
+
+After the full model is ready, stay on VPN, SSH back in, restore the four exports above, and submit
+the entire Prompt 3 graph through the one fail-closed helper:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+bash scripts/slurm/submit_prompt3_execution.sh
+source outputs/private/prompt3_job_ids.env
+squeue -j "${SMOKE_8B_JOB_ID},${FOUNDATION_JOB_ID},${THROUGHPUT_JOB_ID},${EMBED_ARRAY_JOB_ID},${FIT_JOB_ID}" \
+  -o "%.18i %.12P %.28j %.2t %.10M %R"
+```
+
+The exact dependency graph is:
+
+```text
+06 8B smoke ----\
+                 +--afterok--> 21 throughput --afterok--> 22 array 0-3%1 --afterok--> 23 fit/report
+20 foundation --/
+```
+
+Jobs 20, 22, and 23 allow up to 12 hours; job 21 allows four hours. The array mapping is fixed as
+0=`lab_anemia`, 1=`guo_readmission`, 2=`new_hypertension`, 3=`chexpert`; `%1` serializes GPU use.
+Once all five IDs appear in `squeue` as pending or running with the expected dependencies, it is
+safe to exit SSH and disconnect the VPN. Slurm continues independently.
+
+Expected governed outputs are:
+
+- `outputs/private/final/locked_four_task_m1_v1/cohort/final_panel_cohort_v1.parquet`;
+- per-task `prepared/{task}/{patient_window_index,patient_window_metadata,texts}.parquet` and
+  `COMPLETE.json`;
+- final-only B3 artifacts under `outputs/private/final/locked_four_task_m1_v1/count_baseline/`;
+- `foundation.json`, `throughput.json`, four `embedding/{task}.json` aggregates, and
+  `final_m1_validation.json` under `reports/generated/final/locked_four_task_m1_v1/`;
+- condition-level 0.6B and runtime-authorized 8B caches plus row-mirrored metadata under the final
+  private namespace; and
+- executed aggregate notebooks 05 and 06 under `outputs/private/executed_notebooks/`.
+
+To monitor later, reconnect to VPN and SSH, then run:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+source outputs/private/prompt3_job_ids.env
+squeue -j "${SMOKE_8B_JOB_ID},${FOUNDATION_JOB_ID},${THROUGHPUT_JOB_ID},${EMBED_ARRAY_JOB_ID},${FIT_JOB_ID}" \
+  -o "%.18i %.12P %.28j %.2t %.10M %R"
+for log in \
+  "slurm-qwen3e-8b-smoke-${SMOKE_8B_JOB_ID}.out" \
+  "slurm-tehr-final-foundation-${FOUNDATION_JOB_ID}.out" \
+  "slurm-tehr-final-throughput-${THROUGHPUT_JOB_ID}.out" \
+  slurm-tehr-final-m1-embed-${EMBED_ARRAY_JOB_ID}_*.out \
+  "slurm-tehr-final-m1-fit-${FIT_JOB_ID}.out"; do
+  [[ -e "${log}" ]] && { echo "===== ${log}"; tail -n 100 "${log}"; }
+done
+```
+
+Do not treat a dependency cancellation, an empty queue, or an existing report as success. After
+all jobs leave `squeue`, run the complete postcondition gate:
+
+```bash
+source outputs/private/prompt3_job_ids.env
+SMOKE_REPORT="outputs/private/smoke/qwen_embedding_smoke-${SMOKE_8B_JOB_ID}.json"
+SMOKE_REPORT="${SMOKE_REPORT}" PYTHONPATH=src .venv/bin/python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+report = json.loads(Path(os.environ["SMOKE_REPORT"]).read_text(encoding="utf-8"))
+assert report["status"] == "PASS"
+assert report["model_repository"] == "Qwen/Qwen3-Embedding-8B"
+assert report["max_seq_length"] == 8192
+assert report["patient_data_used"] is False
+assert report["local_files_only"] is True
+for field in ("model_revision_hash", "model_artifact_hash", "tokenizer_hash"):
+    assert len(report[field]) == 64
+print("PASS: complete pinned 8B synthetic smoke")
+PY
+
+for job_id in "${FOUNDATION_JOB_ID}" "${THROUGHPUT_JOB_ID}" "${FIT_JOB_ID}"; do
+  test -s "outputs/private/run_status/${job_id}/COMPLETE.json"
+  test ! -e "outputs/private/run_status/${job_id}/FAILED.json"
+done
+for index in 0 1 2 3; do
+  test -s "outputs/private/run_status/${EMBED_ARRAY_JOB_ID}_${index}/COMPLETE.json"
+  test ! -e "outputs/private/run_status/${EMBED_ARRAY_JOB_ID}_${index}/FAILED.json"
+done
+STATUS_IDS="${FOUNDATION_JOB_ID} ${THROUGHPUT_JOB_ID} ${EMBED_ARRAY_JOB_ID}_0 ${EMBED_ARRAY_JOB_ID}_1 ${EMBED_ARRAY_JOB_ID}_2 ${EMBED_ARRAY_JOB_ID}_3 ${FIT_JOB_ID}" \
+SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" .venv/bin/python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+for job_id in os.environ["STATUS_IDS"].split():
+    payload = json.loads(
+        Path(f"outputs/private/run_status/{job_id}/COMPLETE.json").read_text(encoding="utf-8")
+    )
+    assert payload["state"] == "COMPLETE"
+    assert payload["exit_status"] == 0
+    assert payload["git_commit"] == os.environ["SOURCE_GIT_COMMIT"]
+print("PASS: every Prompt 3 scientific sentinel is COMPLETE/exit-0 at the submitted commit")
+PY
+
+FOUNDATION=reports/generated/final/locked_four_task_m1_v1/foundation.json
+THROUGHPUT=reports/generated/final/locked_four_task_m1_v1/throughput.json
+RESULTS=reports/generated/final/locked_four_task_m1_v1/final_m1_validation.json
+test -s "${FOUNDATION}"
+test -s "${THROUGHPUT}"
+test -s "${RESULTS}"
+test -s outputs/private/executed_notebooks/05_final_foundation_review.ipynb
+test -s outputs/private/executed_notebooks/06_final_m1_results.ipynb
+
+srun --partition=batch --cpus-per-task=2 --mem=8G --time=00:30:00 \
+  --container-image=/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh \
+  --container-mounts=/data:/data \
+  --container-workdir="$PWD" \
+  env PYTHONPATH=src .venv/bin/python scripts/review_final_foundation.py \
+    --report "${FOUNDATION}" --private-postconditions
+srun --partition=batch --cpus-per-task=2 --mem=8G --time=00:30:00 \
+  --container-image=/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh \
+  --container-mounts=/data:/data \
+  --container-workdir="$PWD" \
+  env PYTHONPATH=src .venv/bin/python scripts/review_final_m1_results.py \
+    --report "${RESULTS}" --private-postconditions
+```
+
+The foundation reviewer checks the exact panel, one official instance per patient/task, official
+splits/times, strict censoring, seven-field deduplication, outcome/shortcut audits, windows,
+content matching, label-index-only perturbations, metadata alignment, and private hashes. The final
+reviewer additionally checks the exact 0.6B/8B identities, throughput-only 2x gate, B1-B4/C0-C3,
+three C3 seeds, per-task and equal-weight metrics, paired bootstrap evidence, coverage/runtime
+evidence, pilot isolation, and the continued test/M2/M3 prohibition.
+
+Build the privacy-safe handoff only after both reviewers pass:
+
+```bash
+HANDOFF_ARGS=(
+  --job-id "${FOUNDATION_JOB_ID}"
+  --job-id "${THROUGHPUT_JOB_ID}"
+  --job-id "${EMBED_ARRAY_JOB_ID}_0"
+  --job-id "${EMBED_ARRAY_JOB_ID}_1"
+  --job-id "${EMBED_ARRAY_JOB_ID}_2"
+  --job-id "${EMBED_ARRAY_JOB_ID}_3"
+  --job-id "${FIT_JOB_ID}"
+  --output reports/generated/handoff/prompt3_handoff.json
+)
+PYTHONPATH=src .venv/bin/python scripts/build_handoff_bundle.py "${HANDOFF_ARGS[@]}"
+```
+
+Copy only the three reviewed aggregates and the handoff back to the Mac. Remain on VPN until the
+transfer completes:
+
+```bash
+exit
+mkdir -p /Users/williamdelery/code/temporal-ehr-ml4h/reports/generated/final/locked_four_task_m1_v1
+mkdir -p /Users/williamdelery/code/temporal-ehr-ml4h/reports/generated/handoff
+rsync -avP \
+  wdelery@10.45.62.90:/data/shared73/projects/wdelery/temporal-ehr-ml4h/reports/generated/final/locked_four_task_m1_v1/foundation.json \
+  wdelery@10.45.62.90:/data/shared73/projects/wdelery/temporal-ehr-ml4h/reports/generated/final/locked_four_task_m1_v1/throughput.json \
+  wdelery@10.45.62.90:/data/shared73/projects/wdelery/temporal-ehr-ml4h/reports/generated/final/locked_four_task_m1_v1/final_m1_validation.json \
+  /Users/williamdelery/code/temporal-ehr-ml4h/reports/generated/final/locked_four_task_m1_v1/
+rsync -avP \
+  wdelery@10.45.62.90:/data/shared73/projects/wdelery/temporal-ehr-ml4h/reports/generated/handoff/prompt3_handoff.json \
+  /Users/williamdelery/code/temporal-ehr-ml4h/reports/generated/handoff/
+```
+
+Do not copy cohorts, patient-window tables, prepared text, manifests, embeddings, predictions,
+executed notebooks, caches, or private status files. Disconnect VPN after the aggregate transfer.

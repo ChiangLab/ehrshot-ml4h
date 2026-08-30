@@ -1,4 +1,4 @@
-"""Private patient-by-window index construction for the complete M1 pilot."""
+"""Private patient-by-window index construction shared by M1 experiments."""
 
 from __future__ import annotations
 
@@ -153,9 +153,10 @@ def _rows_for_representation(
         "retained_event_count": packed.included_event_count,
         "source_event_count": packed.total_event_count,
         "source_historical_span_days": (
-            instance.prediction_time - min(source_times)
-        ).total_seconds()
-        / 86_400,
+            (instance.prediction_time - min(source_times)).total_seconds() / 86_400
+            if source_times
+            else 0.0
+        ),
         "retained_historical_span_days": (
             (instance.prediction_time - min(retained_times)).total_seconds() / 86_400
             if retained_times
@@ -182,14 +183,12 @@ def prepare_instance(
 ) -> PreparedInstance:
     """Create private representation and window-index rows without model inference."""
     if instance.split not in {"train", "validation"}:
-        raise ContractError("Pilot preparation prohibits the test split.")
+        raise ContractError("M1 preparation prohibits the test split.")
     events = tuple(event_from_mapping(row) for row in instance.events)
     if any(event.time >= instance.prediction_time for event in events):
-        raise ContractError("Pilot preparation received a future or exact-prediction-time event.")
+        raise ContractError("M1 preparation received a future or exact-prediction-time event.")
     deduplicated, _ = deduplicate_events(events)
     windows = build_prediction_windows(deduplicated, instance.prediction_time, window_days=window_days)
-    if not windows:
-        raise ContractError("Pilot instance has no strictly prior event window.")
     prefixed = InstructionTokenizer(tokenizer, instruction)
     instruction_hash = stable_hash(instruction.strip())
     budget_hash = stable_hash({"token_budget": budget})
@@ -251,8 +250,12 @@ def prepare_instance(
         if text_row:
             text_rows.append(text_row)
     for name, condition in baseline_variants:
-        packed = pack_history(condition, descriptions, tokenizer=prefixed, budget=budget)
-        rendered = prefixed.render(packed.text)
+        packed = (
+            pack_history(condition, descriptions, tokenizer=prefixed, budget=budget)
+            if condition.eligible
+            else None
+        )
+        rendered = prefixed.render(packed.text) if packed else None
         rows, text_row = _rows_for_representation(
             experiment_id=experiment_id,
             instance=instance,
@@ -269,8 +272,8 @@ def prepare_instance(
             budget_hash=budget_hash,
         )
         index_rows.extend(rows)
-        assert text_row is not None
-        text_rows.append(text_row)
+        if text_row is not None:
+            text_rows.append(text_row)
     return PreparedInstance(tuple(index_rows), tuple(text_rows), len(events), len(deduplicated))
 
 

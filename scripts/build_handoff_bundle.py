@@ -18,6 +18,9 @@ AGGREGATE_REPORTS = (
     Path("reports/generated/phase1_protocol_review/protocol_alignment.json"),
     Path("reports/generated/serialization_qc/serialization_qc.json"),
     Path("reports/generated/pilot/three_task_m1_engineering_pilot_v1/pilot_results.json"),
+    Path("reports/generated/final/locked_four_task_m1_v1/foundation.json"),
+    Path("reports/generated/final/locked_four_task_m1_v1/throughput.json"),
+    Path("reports/generated/final/locked_four_task_m1_v1/final_m1_validation.json"),
 )
 HASHED_PROTOCOL_FILES = (
     Path("configs/tasks.yaml"),
@@ -25,6 +28,7 @@ HASHED_PROTOCOL_FILES = (
     Path("configs/experiments/proposed_four_task.yaml"),
     Path("configs/experiments/locked_panel.yaml"),
     Path("configs/experiments/complete_three_task_pilot.yaml"),
+    Path("configs/experiments/final_four_task_m1.yaml"),
     Path("docs/CURRENT_SCIENTIFIC_PROTOCOL.md"),
     Path("docs/PROTOCOL_DEVIATIONS.md"),
 )
@@ -159,6 +163,84 @@ def _aggregate_summary(path: Path) -> dict[str, Any]:
                 "final_panel_used_for_pilot": bool(payload.get("final_panel_used_for_pilot", True)),
             }
         )
+    elif path.name == "foundation.json":
+        scope = payload.get("scientific_scope", {})
+        summary.update(
+            {
+                "experiment_id": (
+                    payload.get("experiment_id")
+                    if payload.get("experiment_id") == "locked_four_task_m1_v1"
+                    else "UNKNOWN"
+                ),
+                "protocol_decision": (
+                    payload.get("protocol_decision")
+                    if payload.get("protocol_decision") == "FINAL_FOUNDATION_COMPLETE_M1_AUTHORIZED"
+                    else "UNKNOWN"
+                ),
+                "tasks": (
+                    scope.get("tasks")
+                    if isinstance(scope, dict)
+                    and scope.get("tasks")
+                    == ["lab_anemia", "guo_readmission", "new_hypertension", "chexpert"]
+                    else []
+                ),
+                "content_matching_passed": bool(payload.get("content_matching_passed")),
+                "test_predictions_or_performance_used": bool(
+                    payload.get("test_predictions_or_performance_used", True)
+                ),
+                "pilot_artifacts_reused": bool(payload.get("pilot_artifacts_reused", True)),
+            }
+        )
+    elif path.name == "throughput.json":
+        plan = payload.get("feasibility_plan", {})
+        summary.update(
+            {
+                "experiment_id": (
+                    payload.get("experiment_id")
+                    if payload.get("experiment_id") == "locked_four_task_m1_v1"
+                    else "UNKNOWN"
+                ),
+                "primary_feasible_with_2x_contingency": bool(
+                    plan.get("primary_feasible_with_2x_contingency")
+                ),
+                "outcome_performance_used_for_feasibility": bool(
+                    plan.get("outcome_performance_used_for_feasibility", True)
+                ),
+                "test_predictions_or_performance_used": bool(
+                    payload.get("test_predictions_or_performance_used", True)
+                ),
+            }
+        )
+    elif path.name == "final_m1_validation.json":
+        scope = payload.get("scientific_scope", {})
+        summary.update(
+            {
+                "experiment_id": (
+                    payload.get("experiment_id")
+                    if payload.get("experiment_id") == "locked_four_task_m1_v1"
+                    else "UNKNOWN"
+                ),
+                "protocol_decision": (
+                    payload.get("protocol_decision")
+                    if payload.get("protocol_decision")
+                    == "FINAL_M1_VALIDATION_COMPLETE_TEST_REMAINS_LOCKED"
+                    else "UNKNOWN"
+                ),
+                "tasks": (
+                    scope.get("tasks")
+                    if isinstance(scope, dict)
+                    and scope.get("tasks")
+                    == ["lab_anemia", "guo_readmission", "new_hypertension", "chexpert"]
+                    else []
+                ),
+                "content_matching_passed": bool(payload.get("content_matching_passed")),
+                "test_predictions_or_performance_used": bool(
+                    payload.get("test_predictions_or_performance_used", True)
+                ),
+                "test_results_reported": bool(payload.get("test_results_reported", True)),
+                "pilot_artifacts_reused": bool(payload.get("pilot_artifacts_reused", True)),
+            }
+        )
     return summary
 
 
@@ -200,6 +282,10 @@ def _job_summary(root: Path, job_id: str) -> dict[str, Any]:
             "pilot_throughput",
             "pilot_embed_task",
             "pilot_fit_report",
+            "final_foundation",
+            "final_throughput",
+            "final_m1_embed_task",
+            "final_m1_fit_validation",
         }:
             run_kind = "UNKNOWN"
         safe_payload: dict[str, Any] = {"state": state, "run_kind": run_kind}

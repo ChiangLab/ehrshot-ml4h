@@ -48,6 +48,19 @@ NOTEBOOKS = {
         "## Token coverage, throughput, failures, and retries",
         "## Machine-readable completion checklist",
     ],
+    "05_final_foundation_review.ipynb": [
+        "# 05 — Locked four-task final foundation review",
+        "## Patient-balanced cohort and official split coverage",
+        "## Outcome definitions, shortcut exclusion, and serializer gates",
+        "## Boundary",
+    ],
+    "06_final_m1_results.ipynb": [
+        "# 06 — Final four-task M1 validation",
+        "## Equal-weight panel validation estimates",
+        "## Prespecified temporal and baseline contrasts",
+        "## Runtime-only 8B feasibility and operational evidence",
+        "## Boundary",
+    ],
 }
 
 

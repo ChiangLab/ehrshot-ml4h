@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=qwen3e-8b-download
 #SBATCH --output=slurm-%x-%j.out
+#SBATCH --partition=batch
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
 #SBATCH --time=06:00:00

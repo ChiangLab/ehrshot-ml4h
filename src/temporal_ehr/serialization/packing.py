@@ -75,7 +75,7 @@ class PackingCache:
             self._evaluations[key] = _EvaluatedSuffix(
                 suffix,
                 text,
-                _count(self.tokenizer, text) if text else 0,
+                _count(self.tokenizer, text),
                 clinical_signature(blocks),
                 block_content_signature(blocks),
             )

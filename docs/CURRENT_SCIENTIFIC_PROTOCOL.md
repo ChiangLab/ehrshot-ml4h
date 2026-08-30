@@ -14,8 +14,9 @@ Status date: 2026-08-29. This is a concise operational index; the final August 1
 - The complete three-task engineering pilot passed for Qwen3-Embedding-0.6B, 4,096 tokens, M1
   direct serialization, B1-B4, and train/validation only. Pilot artifacts cannot satisfy
   final-panel gates and pilot performance cannot alter the prespecified final panel.
-- Prompt 3 now authorizes construction of a new versioned final-panel cohort and final M1
-  validation experiment. M2, M3, and held-out evaluation remain locked.
+- Prompt 3 source implements the versioned `locked_four_task_m1_v1` final-panel cohort and final
+  M1 validation experiment. Local synthetic verification is complete; governed DGX execution is
+  pending. M2, M3, and held-out evaluation remain locked.
 
 ## Time, windows, and evidence identity
 
@@ -27,6 +28,10 @@ Status date: 2026-08-29. This is a concise operational index; the final August 1
 - Remove only seven-field exact duplicates across `subject_id`, `time`, `code`, `numeric_value`,
   `text_value`, `unit`, and `omop_table`. Preserve recurrence at different times or with any
   differing structured value.
+- Select at most one official label instance per patient and task by sorting eligible official
+  prediction times and mapping a SHA-256 digest of dataset/release version, task, official split,
+  patient, frozen seed, and the sorted eligible prediction-time-index domain to one index. The
+  rule is independent of outcome, history, record length, and model results.
 - The primary C0-C3 comparison uses identical retained clinical events and order:
   - C0 order only: no elapsed-time labels;
   - C1 correct compact prediction-relative labels;
@@ -42,6 +47,9 @@ Status date: 2026-08-29. This is a concise operational index; the final August 1
 - M1: one frozen embedding of the flat complete chronological document, then logistic regression.
 - Frozen Qwen inference uses BF16 where configured, but finite raw vectors are promoted and
   explicitly L2-normalized in FP32 before caching; see DEC-011 and DEV-016.
+- Final M1 uses Qwen3-Embedding-0.6B at 8,192 tokens. A separate runtime/memory-only throughput
+  gate benchmarks the complete pinned 8B model and admits only a feasible prefix of C1, C3,
+  latest-window, and latest-code priority, using a 2x time contingency and no outcome metric.
 - M2: one authorized local, non-recursive longitudinal summary, frozen embedding, then logistic
   regression. It is RAPTOR-inspired compression, not a RAPTOR hierarchy.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus

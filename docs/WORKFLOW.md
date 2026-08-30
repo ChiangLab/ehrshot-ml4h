@@ -35,7 +35,7 @@ source of truth.
 - Each formal scientific run uses a clean commit, immutable configuration/hash identity,
   dependency-locked jobs, atomic sentinels, and semantic validators.
 
-## Current Prompt 2 shortcut
+## Completed Prompt 2 shortcut
 
 After the DGX checkout is clean and current and the four required path variables are exported, run:
 
@@ -46,3 +46,26 @@ bash scripts/slurm/submit_prompt2_execution.sh
 The helper validates prerequisites, submits the synthetic smoke gate, submits the pilot chain
 behind it, and records all IDs in a versioned private submission record plus
 `outputs/private/prompt2_job_ids.env` as a pointer to the newest record.
+
+## Active Prompt 3 shortcut
+
+After the reviewed Prompt 3 source is committed, pushed, pulled into a clean DGX checkout, and both
+complete hash-manifested model snapshots are present, export the four governed path variables and
+run:
+
+```bash
+bash scripts/slurm/submit_prompt3_execution.sh
+source outputs/private/prompt3_job_ids.env
+```
+
+The helper performs hard-gate checks and submits this exact fail-closed graph:
+
+```text
+8B smoke ----\
+              +-> throughput -> four-task embedding array (0-3%1) -> fit/report
+foundation --/
+```
+
+Foundation and the 8B smoke can run independently. All downstream edges use `afterok`; the
+scientific jobs use atomic job-specific sentinels and semantic postconditions. Follow
+`docs/DGX_BATCH_RUNBOOK.md` for full-model preparation, monitoring, verification, and safe handoff.

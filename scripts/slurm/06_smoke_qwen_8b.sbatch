@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=qwen3e-8b-smoke
 #SBATCH --output=slurm-%x-%j.out
+#SBATCH --partition=batch
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=02:00:00
@@ -21,5 +22,4 @@ srun \
     .venv/bin/python scripts/dgx/smoke_test_qwen_embeddings.py \
     --model-path "${MODEL_ROOT}/Qwen3-Embedding-8B" \
     --output "outputs/private/smoke/qwen_embedding_smoke-${SLURM_JOB_ID}.json" \
-    --max-seq-length 4096 \
-    --flash-attention
+    --max-seq-length 8192
