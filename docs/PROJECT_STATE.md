@@ -6,7 +6,7 @@ Status date: 2026-08-29
 
 - Prompt 3 source, container-preflight repair, and verified-node pin are on Mac, `origin/main`, and
   the DGX through commit `f45e61c0861b246a0f0061f7dcf4e9aa65ced880`. The subsequent duplicate
-  official prediction-time repair has passed local validation; governed DGX verification is pending.
+  official prediction-time repair is commit `1eb0d3535b0afaff0b82b4d430144ca7df372a8c`.
 - Baseline source commit for DGX job 407:
   `f9a370c7fe1cb13edd126128cfddc79100852913`.
 - That commit contains the 12-hour Phase 1 alignment runner and protocol-aligned serializer QC.
@@ -85,3 +85,14 @@ Status date: 2026-08-29
   repair excludes every duplicated patient/task/time group before ranking without consulting label
   values, then reports privacy-suppressed aggregate accounting. It passed 93 local synthetic tests,
   Ruff, shell syntax, context, privacy, and pre-push checks. No final model or test result ran.
+- At commit `1eb0d35`, synthetic 8B smoke job 436 passed and foundation job 437 completed in 3h59m41s.
+  Its hard gates, four-task foundation command, semantic reviewer, aggregate notebook, notebook
+  validator, immutable cohort, and COMPLETE/exit-0 sentinel all passed. Throughput job 438 loaded
+  both models, then correctly failed its runtime gate: measured 0.6B speed was 1.40777 documents/s,
+  and anemia's 30,056 rows project to 42,700.11 seconds under the required 2x contingency. The
+  43,200-second job limit leaves 499.89 seconds; only the additional 900-second reserve caused the
+  failure. Jobs 439–440 were canceled and no embedding/model result ran.
+- The pending recovery retains 2x contingency, changes only the extra reserve from 900 to 300
+  seconds, validates exact reuse of job 437 across that execution-only change, and resubmits only
+  throughput plus downstream work. No cohort, prepared input, task, model, condition, or outcome
+  definition changes.

@@ -132,12 +132,28 @@ def validate_final_m1_report(payload: dict[str, Any]) -> None:
         ):
             raise ContractError("Final report lacks one required foundation coverage field.")
     throughput = payload.get("throughput", {})
+    feasibility = throughput.get("feasibility_plan", {})
+    foundation_provenance = throughput.get("foundation_provenance", {})
     if (
         throughput.get("status") != "PASS"
         or throughput.get("outcomes_or_performance_read") is not False
-        or throughput.get("feasibility_plan", {}).get("contingency_multiplier") != 2.0
-        or throughput.get("feasibility_plan", {}).get("primary_feasible_with_2x_contingency") is not True
-        or throughput.get("feasibility_plan", {}).get("outcome_performance_used_for_feasibility") is not False
+        or feasibility.get("contingency_multiplier") != 2.0
+        or feasibility.get("primary_feasible_with_2x_contingency") is not True
+        or feasibility.get("outcome_performance_used_for_feasibility") is not False
+        or set(feasibility.get("tasks", {})) != set(FINAL_TASKS)
+        or any(
+            task.get("minimum_runtime_reserve_seconds") != 300
+            for task in feasibility.get("tasks", {}).values()
+        )
+        or foundation_provenance.get("mode")
+        not in {"same_source", "validated_execution_only_reuse"}
+        or (
+            foundation_provenance.get("mode") == "validated_execution_only_reuse"
+            and (
+                foundation_provenance.get("test_predictions_or_performance_used") is not False
+                or foundation_provenance.get("cohort_or_prepared_artifact_changed") is not False
+            )
+        )
     ):
         raise ContractError("Final throughput/8B feasibility gate failed.")
     embedding_tasks = payload.get("embedding_tasks", [])

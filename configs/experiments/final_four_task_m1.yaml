@@ -124,13 +124,27 @@ representations:
 throughput_gate:
   contingency_multiplier: 2.0
   task_job_time_limit_seconds: 43200
-  minimum_runtime_reserve_seconds: 900
+  minimum_runtime_reserve_seconds: 300
   feasibility_inputs_use_outcomes: false
   confirmatory_priority:
     - C1_correct_compact_time
     - C3_shuffled_earlier_time_labels
     - B1_latest_window_only
     - B2_latest_code_occurrence
+
+foundation_reuse:
+  source_job_id: 437
+  source_git_commit: 1eb0d3535b0afaff0b82b4d430144ca7df372a8c
+  source_experiment_config_hash: 63d79d02cc4dfcb5166f2452606ac817f4b2636a69c1a4ffe666d088e1f38c35
+  permitted_execution_only_change:
+    field: throughput_gate.minimum_runtime_reserve_seconds
+    previous_value: 900
+    current_value: 300
+  rationale: >-
+    Job 438 measured the required 2x worst-case primary runtime for lab_anemia at
+    42,700.11 seconds. A five-minute explicit reserve keeps the full 2x contingency
+    inside the 43,200-second site limit without changing any cohort, input, model,
+    condition, outcome, or evaluation definition.
 
 preconditions:
   recovery_job_id: 408

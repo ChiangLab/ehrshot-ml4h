@@ -7,6 +7,7 @@ import json
 import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,90 @@ from temporal_ehr.final_m1.foundation import _write_immutable_json
 from temporal_ehr.pilot.cache import file_sha256
 from temporal_ehr.pilot.model import LocalQwenEncoder, load_model_identity
 from temporal_ehr.serialization.integrity import stable_hash
+
+
+def validate_foundation_reuse(
+    *,
+    repository_root: Path,
+    spec: FinalM1Authorization,
+    foundation: Mapping[str, Any],
+    current_source_git_commit: str,
+) -> dict[str, Any]:
+    """Verify exact prior-foundation provenance across one execution-only config change."""
+    current_config_hash = stable_hash(spec.raw)
+    if (
+        foundation.get("source_git_commit") == current_source_git_commit
+        and foundation.get("experiment_config_hash") == current_config_hash
+    ):
+        return {
+            "mode": "same_source",
+            "foundation_job_id": None,
+            "foundation_source_git_commit": current_source_git_commit,
+            "foundation_experiment_config_hash": current_config_hash,
+            "current_source_git_commit": current_source_git_commit,
+            "current_experiment_config_hash": current_config_hash,
+            "execution_only_change": None,
+        }
+
+    reuse = spec.raw.get("foundation_reuse")
+    if not isinstance(reuse, dict):
+        raise ContractError("Final foundation does not match current source and has no reuse authorization.")
+    source_job_id = str(reuse.get("source_job_id", ""))
+    source_commit = str(reuse.get("source_git_commit", ""))
+    source_config_hash = str(reuse.get("source_experiment_config_hash", ""))
+    change = reuse.get("permitted_execution_only_change")
+    if not isinstance(change, dict):
+        raise ContractError("Final foundation reuse lacks one exact execution-only change.")
+    if (
+        foundation.get("status") != "PASS"
+        or foundation.get("protocol_decision") != "FINAL_FOUNDATION_COMPLETE_M1_AUTHORIZED"
+        or foundation.get("source_git_commit") != source_commit
+        or foundation.get("experiment_config_hash") != source_config_hash
+        or foundation.get("test_predictions_or_performance_used") is not False
+    ):
+        raise ContractError("Reusable final foundation identity or no-test gate failed.")
+
+    status_path = repository_root / f"outputs/private/run_status/{source_job_id}/COMPLETE.json"
+    if not status_path.is_file():
+        raise ContractError("Reusable final foundation lacks its job-specific COMPLETE sentinel.")
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    if (
+        status.get("state") != "COMPLETE"
+        or status.get("exit_status") != 0
+        or str(status.get("job_id")) != source_job_id
+        or status.get("git_commit") != source_commit
+        or status.get("run_kind") != "final_foundation"
+    ):
+        raise ContractError("Reusable final foundation job sentinel failed provenance checks.")
+
+    reconstructed = deepcopy(spec.raw)
+    reconstructed.pop("foundation_reuse", None)
+    field = change.get("field")
+    if field != "throughput_gate.minimum_runtime_reserve_seconds":
+        raise ContractError("Only the throughput runtime reserve may differ for foundation reuse.")
+    current_value = int(reconstructed["throughput_gate"]["minimum_runtime_reserve_seconds"])
+    if current_value != int(change.get("current_value", -1)):
+        raise ContractError("Current throughput reserve does not match its reuse authorization.")
+    reconstructed["throughput_gate"]["minimum_runtime_reserve_seconds"] = int(
+        change.get("previous_value", -1)
+    )
+    if stable_hash(reconstructed) != source_config_hash:
+        raise ContractError("Current configuration differs from the foundation by more than the authorized reserve.")
+    return {
+        "mode": "validated_execution_only_reuse",
+        "foundation_job_id": source_job_id,
+        "foundation_source_git_commit": source_commit,
+        "foundation_experiment_config_hash": source_config_hash,
+        "current_source_git_commit": current_source_git_commit,
+        "current_experiment_config_hash": current_config_hash,
+        "execution_only_change": {
+            "field": field,
+            "previous_value": int(change["previous_value"]),
+            "current_value": int(change["current_value"]),
+        },
+        "cohort_or_prepared_artifact_changed": False,
+        "test_predictions_or_performance_used": False,
+    }
 
 
 def read_final_task_texts(spec: FinalM1Authorization, task: str) -> list[dict[str, Any]]:
@@ -155,13 +240,12 @@ def benchmark_final_throughput(
     if not foundation_path.is_file():
         raise ContractError("Final throughput requires a completed foundation aggregate.")
     foundation = json.loads(foundation_path.read_text(encoding="utf-8"))
-    if (
-        foundation.get("status") != "PASS"
-        or foundation.get("protocol_decision") != "FINAL_FOUNDATION_COMPLETE_M1_AUTHORIZED"
-        or foundation.get("source_git_commit") != source_git_commit
-        or foundation.get("test_predictions_or_performance_used") is not False
-    ):
-        raise ContractError("Final foundation identity or hard gates failed before throughput.")
+    foundation_provenance = validate_foundation_reuse(
+        repository_root=repository_root,
+        spec=spec,
+        foundation=foundation,
+        current_source_git_commit=source_git_commit,
+    )
     task_rows = {task: read_final_task_texts(spec, task) for task in spec.tasks}
     all_rows = [row for rows in task_rows.values() for row in rows]
     # One deterministic near-limit input from every concrete representation/seed/task cell.
@@ -238,6 +322,7 @@ def benchmark_final_throughput(
         "experiment_id": spec.experiment_id,
         "experiment_config_hash": stable_hash(spec.raw),
         "source_git_commit": source_git_commit,
+        "foundation_provenance": foundation_provenance,
         "token_budget": spec.token_budget,
         "sample_policy": "one deterministic near-limit prepared input per task and concrete condition",
         "warmup_policy": "one fully synthetic input per model excluded from timing",

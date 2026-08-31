@@ -53,6 +53,9 @@ Status date: 2026-08-29. This is a concise operational index; the final August 1
 - Final M1 uses Qwen3-Embedding-0.6B at 8,192 tokens. A separate runtime/memory-only throughput
   gate benchmarks the complete pinned 8B model and admits only a feasible prefix of C1, C3,
   latest-window, and latest-code priority, using a 2x time contingency and no outcome metric.
+- The DGX site limit is 12 hours. The runtime gate retains the full 2x measured contingency and a
+  five-minute execution reserve; this is an engineering allocation rule and changes no scientific
+  input, model, condition, or evaluation definition.
 - M2: one authorized local, non-recursive longitudinal summary, frozen embedding, then logistic
   regression. It is RAPTOR-inspired compression, not a RAPTOR hierarchy.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus

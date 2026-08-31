@@ -14,7 +14,7 @@ from temporal_ehr.final_m1.embedding import embed_final_task
 from temporal_ehr.final_m1.foundation import build_final_foundation
 from temporal_ehr.final_m1.gates import require_prompt3_hard_gates
 from temporal_ehr.final_m1.report import fit_final_m1_and_report
-from temporal_ehr.final_m1.throughput import benchmark_final_throughput
+from temporal_ehr.final_m1.throughput import benchmark_final_throughput, validate_foundation_reuse
 
 
 def _environment_path(name: str) -> Path:
@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("hard-gates")
     subparsers.add_parser("foundation")
+    subparsers.add_parser("foundation-reuse-gate")
     subparsers.add_parser("throughput")
     embed = subparsers.add_parser("embed-task")
     embed.add_argument("--task-index", type=int, required=True)
@@ -63,6 +64,21 @@ def main() -> int:
             model_root=_environment_path("TEMPORAL_EHR_MODEL_ROOT"),
             source_git_commit=_source_commit(),
         )
+    elif args.command == "foundation-reuse-gate":
+        spec = load_final_m1_authorization(config, repository_root=root)
+        foundation_path = spec.aggregate_root / "foundation.json"
+        if not foundation_path.is_file():
+            raise ValueError("Final foundation aggregate is missing.")
+        result = {
+            "status": "PASS",
+            "experiment_id": spec.experiment_id,
+            **validate_foundation_reuse(
+                repository_root=root,
+                spec=spec,
+                foundation=json.loads(foundation_path.read_text(encoding="utf-8")),
+                current_source_git_commit=_source_commit(),
+            ),
+        }
     elif args.command == "throughput":
         result = benchmark_final_throughput(
             repository_root=root,

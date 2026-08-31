@@ -24,7 +24,7 @@ from temporal_ehr.final_m1.embedding import load_final_condition_embeddings
 from temporal_ehr.final_m1.foundation import _metadata_rows, validate_outcome_contracts
 from temporal_ehr.final_m1.gates import require_prompt3_hard_gates
 from temporal_ehr.final_m1.report import fit_condition_scope
-from temporal_ehr.final_m1.throughput import plan_confirmatory_cells
+from temporal_ehr.final_m1.throughput import plan_confirmatory_cells, validate_foundation_reuse
 from temporal_ehr.pilot.cache import ResumableEmbeddingCache, file_sha256
 from temporal_ehr.pilot.index import finalize_indices, prepare_instance
 from temporal_ehr.pilot.model import ModelIdentity
@@ -306,6 +306,81 @@ def test_runtime_only_confirmatory_plan_is_prefix_ordered_with_two_x_contingency
     )
 
 
+def test_measured_anemia_primary_fits_with_full_two_x_contingency_and_five_minute_reserve() -> None:
+    kwargs = {
+        "row_counts_by_task": {"lab_anemia": {"__primary_total__": 30056}},
+        "primary_documents_per_second": 1.4077717054379402,
+        "confirmatory_documents_per_second": {"C1_correct_compact_time": 0.3994419307326096},
+        "priorities": ("C1_correct_compact_time",),
+        "contingency_multiplier": 2.0,
+        "task_job_time_limit_seconds": 43200,
+    }
+    accepted = plan_confirmatory_cells(
+        **kwargs,
+        minimum_runtime_reserve_seconds=300,
+    )
+    rejected = plan_confirmatory_cells(
+        **kwargs,
+        minimum_runtime_reserve_seconds=900,
+    )
+    task = accepted["tasks"]["lab_anemia"]
+    assert accepted["primary_feasible_with_2x_contingency"] is True
+    assert rejected["primary_feasible_with_2x_contingency"] is False
+    assert task["primary_contingent_runtime_seconds"] == pytest.approx(42700.10525698122)
+    assert task["confirmatory_available_seconds"] == pytest.approx(199.89474301878345)
+    assert task["confirmatory_priorities_selected"] == []
+
+
+def test_foundation_reuse_allows_only_exact_runtime_reserve_change(tmp_path: Path) -> None:
+    spec = load_final_m1_authorization(
+        Path("configs/experiments/final_four_task_m1.yaml"), repository_root=Path.cwd()
+    )
+    reuse = spec.raw["foundation_reuse"]
+    status_path = tmp_path / "outputs/private/run_status/437/COMPLETE.json"
+    status_path.parent.mkdir(parents=True)
+    status_path.write_text(
+        json.dumps(
+            {
+                "state": "COMPLETE",
+                "exit_status": 0,
+                "job_id": "437",
+                "git_commit": reuse["source_git_commit"],
+                "run_kind": "final_foundation",
+            }
+        ),
+        encoding="utf-8",
+    )
+    foundation = {
+        "status": "PASS",
+        "protocol_decision": "FINAL_FOUNDATION_COMPLETE_M1_AUTHORIZED",
+        "source_git_commit": reuse["source_git_commit"],
+        "experiment_config_hash": reuse["source_experiment_config_hash"],
+        "test_predictions_or_performance_used": False,
+    }
+    result = validate_foundation_reuse(
+        repository_root=tmp_path,
+        spec=spec,
+        foundation=foundation,
+        current_source_git_commit="f" * 40,
+    )
+    assert result["mode"] == "validated_execution_only_reuse"
+    assert result["cohort_or_prepared_artifact_changed"] is False
+    drifted = replace(
+        spec,
+        raw={
+            **spec.raw,
+            "token_budget": 4096,
+        },
+    )
+    with pytest.raises(ContractError, match="more than the authorized reserve"):
+        validate_foundation_reuse(
+            repository_root=tmp_path,
+            spec=drifted,
+            foundation=foundation,
+            current_source_git_commit="f" * 40,
+        )
+
+
 def _condition_data(*, mismatched: bool = False):
     metadata = []
     vectors = []
@@ -530,6 +605,13 @@ def test_final_slurm_chain_is_containerized_task_mapped_and_atomic() -> None:
     assert 'afterok:${THROUGHPUT_JOB_ID}' in submit
     assert 'afterok:${EMBED_ARRAY_JOB_ID}' in submit
     assert "Refusing to overwrite existing submission record" in submit
+    recovery = Path("scripts/slurm/submit_prompt3_after_foundation.sh").read_text(encoding="utf-8")
+    assert "SOURCE_FOUNDATION_JOB_ID" in recovery
+    assert "SOURCE_FAILED_THROUGHPUT_JOB_ID" in recovery
+    assert "foundation-reuse-gate" in recovery
+    assert "review_final_foundation.py" in recovery
+    assert 'afterok:${THROUGHPUT_JOB_ID}' in recovery
+    assert 'afterok:${EMBED_ARRAY_JOB_ID}' in recovery
     smoke_8b = Path("scripts/slurm/06_smoke_qwen_8b.sbatch").read_text(encoding="utf-8")
     assert "#SBATCH --nodelist=dgit00038673" in smoke_8b
 

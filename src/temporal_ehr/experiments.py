@@ -285,6 +285,7 @@ def load_final_m1_authorization(path: Path, *, repository_root: Path | None = No
         not isinstance(throughput, dict)
         or float(throughput.get("contingency_multiplier", 0)) != 2.0
         or int(throughput.get("task_job_time_limit_seconds", 0)) != 43200
+        or int(throughput.get("minimum_runtime_reserve_seconds", 0)) != 300
         or throughput.get("feasibility_inputs_use_outcomes") is not False
         or throughput.get("confirmatory_priority")
         != [
@@ -295,6 +296,26 @@ def load_final_m1_authorization(path: Path, *, repository_root: Path | None = No
         ]
     ):
         raise ContractError("Final M1 throughput/8B priority contract drifted.")
+    foundation_reuse = config.get("foundation_reuse")
+    permitted_change = (
+        foundation_reuse.get("permitted_execution_only_change")
+        if isinstance(foundation_reuse, dict)
+        else None
+    )
+    if (
+        not isinstance(foundation_reuse, dict)
+        or foundation_reuse.get("source_job_id") != 437
+        or foundation_reuse.get("source_git_commit")
+        != "1eb0d3535b0afaff0b82b4d430144ca7df372a8c"
+        or foundation_reuse.get("source_experiment_config_hash")
+        != "63d79d02cc4dfcb5166f2452606ac817f4b2636a69c1a4ffe666d088e1f38c35"
+        or not isinstance(permitted_change, dict)
+        or permitted_change.get("field")
+        != "throughput_gate.minimum_runtime_reserve_seconds"
+        or permitted_change.get("previous_value") != 900
+        or permitted_change.get("current_value") != 300
+    ):
+        raise ContractError("Final M1 foundation-reuse provenance drifted.")
     instructions = config.get("embedding_instructions")
     outcomes = config.get("outcome_contracts")
     if not isinstance(instructions, dict) or set(instructions) != set(FINAL_TASKS):

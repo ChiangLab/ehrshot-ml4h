@@ -3,10 +3,10 @@
 Status date: 2026-08-30
 
 For the active `prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md`, put the locally validated
-outcome-independent duplicate official prediction-time exclusion on `origin/main`, then pull it
-into the clean DGX checkout. Synthetic 8B smoke job 429 passed; foundation job 430 failed
-closed after finding same-patient/task/time label multiplicity in anemia, and dependent jobs
-431–433 were canceled. A governed aggregate audit supports excluding all duplicated time groups
-before ranking regardless of label values. Submit a fresh dependency-locked chain only after that
-source is at DGX HEAD. Require all atomic sentinels, semantic validators, hashes, and the privacy-safe
-aggregate handoff. Do not run M2, M3, or held-out test evaluation.
+throughput-reserve recovery on `origin/main` and pull it into the clean DGX checkout. Preserve the
+COMPLETE foundation job 437 and FAILED throughput job 438. Submit only throughput, the embedding
+array, and fit/report through `scripts/slurm/submit_prompt3_after_foundation.sh`; its preflight must
+validate the exact job-437 sentinel, prior configuration hash, private foundation hashes, semantic
+report, and the sole execution-only reserve change from 900 to 300 seconds. The required 2x runtime
+contingency remains unchanged. Require all new atomic sentinels, validators, hashes, and the
+privacy-safe aggregate handoff. Do not run M2, M3, or held-out test evaluation.

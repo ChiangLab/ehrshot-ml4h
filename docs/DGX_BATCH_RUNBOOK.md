@@ -16,6 +16,11 @@
   failed closed on multiple official label rows sharing a patient/task/prediction time. Jobs
   431–433 were canceled. The reviewed repair excludes all such groups before selection regardless
   of label values; do not resubmit until its commit is pulled onto the DGX.
+- At the repaired commit, foundation job 437 completed with every validator. Throughput job 438
+  measured anemia's 2x contingent primary runtime at 42,700.11 seconds and failed only because the
+  extra 900-second reserve exceeded the 43,200-second site limit. Preserve both sentinels. The
+  reviewed recovery changes only the reserve to 300 seconds and reuses job 437 through exact
+  provenance/config/hash validation; it does not rerun the foundation.
 - A valid run needs scheduler completion when accounting is available, a clean log, a job-specific
   COMPLETE sentinel with exit status 0, and semantic postconditions. This site has disabled
   historical `sacct`; in that case require disappearance from `squeue` plus the durable evidence.
@@ -446,6 +451,30 @@ Expected governed outputs are:
 - condition-level 0.6B and runtime-authorized 8B caches plus row-mirrored metadata under the final
   private namespace; and
 - executed aggregate notebooks 05 and 06 under `outputs/private/executed_notebooks/`.
+
+### Post-foundation throughput recovery
+
+If job 437 is the validated foundation and job 438 is the preserved reserve-gate failure, do not
+rerun the full graph. After the reviewed recovery commit is on the clean DGX checkout, submit only
+the remaining stages:
+
+```bash
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+export SOURCE_FOUNDATION_JOB_ID=437
+export SOURCE_SMOKE_8B_JOB_ID=436
+export SOURCE_FAILED_THROUGHPUT_JOB_ID=438
+
+bash scripts/slurm/submit_prompt3_after_foundation.sh
+source outputs/private/prompt3_job_ids.env
+squeue -j "${THROUGHPUT_JOB_ID},${EMBED_ARRAY_JOB_ID},${FIT_JOB_ID}" \
+  -o "%.18i %.12P %.28j %.2t %.10M %.10l %R"
+```
+
+The helper first validates job 437's COMPLETE/exit-0 source identity, the exact prior configuration
+hash, the sole reserve change, the aggregate semantics, and all private foundation hashes. It also
+hash-records job 438's FAILED sentinel and refuses an existing throughput aggregate. Only then does
+it submit a new throughput job, task array, and fit/report job.
 
 To monitor later, reconnect to VPN and SSH, then run:
 
