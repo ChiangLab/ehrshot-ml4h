@@ -43,6 +43,21 @@ final_initialize() {
   if [[ -n "${FINAL_NOTEBOOK_OUTPUT:-}" ]]; then
     status_args+=(--notebook-output "${FINAL_NOTEBOOK_OUTPUT}")
   fi
+  if [[ -n "${FINAL_STATUS_SOURCE_JOB_ID:-}" ]]; then
+    status_args+=(--source-job-id "${FINAL_STATUS_SOURCE_JOB_ID}")
+  fi
+  if [[ -n "${FINAL_STATUS_SOURCE_GIT_COMMIT:-}" ]]; then
+    status_args+=(--source-git-commit "${FINAL_STATUS_SOURCE_GIT_COMMIT}")
+  fi
+  if [[ -n "${FINAL_STATUS_RECOVERY_GIT_COMMIT:-}" ]]; then
+    status_args+=(--recovery-git-commit "${FINAL_STATUS_RECOVERY_GIT_COMMIT}")
+  fi
+  if [[ -n "${FINAL_STATUS_SOURCE_FAILED_SENTINEL_SHA256:-}" ]]; then
+    status_args+=(
+      --source-failed-sentinel-sha256
+      "${FINAL_STATUS_SOURCE_FAILED_SENTINEL_SHA256}"
+    )
+  fi
   final_container_python "${status_args[@]}"
   trap final_finalize EXIT
 }

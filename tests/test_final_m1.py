@@ -21,6 +21,7 @@ from temporal_ehr.data.history import HistoryInstance
 from temporal_ehr.experiments import FINAL_TASKS, load_final_m1_authorization
 from temporal_ehr.final_m1.cohort import _validated_unique_times, build_final_cohort, selection_rank
 from temporal_ehr.final_m1.embedding import load_final_condition_embeddings
+from temporal_ehr.final_m1.fit_recovery import load_and_validate_fit_inputs
 from temporal_ehr.final_m1.foundation import _metadata_rows, validate_outcome_contracts
 from temporal_ehr.final_m1.gates import require_prompt3_hard_gates
 from temporal_ehr.final_m1.report import fit_condition_scope
@@ -28,6 +29,7 @@ from temporal_ehr.final_m1.throughput import plan_confirmatory_cells, validate_f
 from temporal_ehr.pilot.cache import ResumableEmbeddingCache, file_sha256
 from temporal_ehr.pilot.index import finalize_indices, prepare_instance
 from temporal_ehr.pilot.model import ModelIdentity
+from temporal_ehr.serialization.integrity import stable_hash
 
 
 class _WhitespaceTokenizer:
@@ -381,6 +383,177 @@ def test_foundation_reuse_allows_only_exact_runtime_reserve_change(tmp_path: Pat
         )
 
 
+def _write_job_status(
+    root: Path,
+    *,
+    status_id: str,
+    state: str,
+    commit: str,
+    run_kind: str,
+) -> Path:
+    path = root / f"outputs/private/run_status/{status_id}/{state}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "state": state,
+                "exit_status": 0 if state == "COMPLETE" else 1,
+                "job_id": status_id,
+                "git_commit": commit,
+                "run_kind": run_kind,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _fit_recovery_fixture(tmp_path: Path):
+    source_spec = load_final_m1_authorization(
+        Path("configs/experiments/final_four_task_m1.yaml"), repository_root=Path.cwd()
+    )
+    spec = replace(
+        source_spec,
+        private_root=tmp_path / "outputs/private/final/locked_four_task_m1_v1",
+        aggregate_root=tmp_path / "reports/generated/final/locked_four_task_m1_v1",
+    )
+    upstream = "77c47f322b98fc74196cc56a0a16edc43604c887"
+    foundation_commit = source_spec.raw["foundation_reuse"]["source_git_commit"]
+    _write_job_status(
+        tmp_path,
+        status_id="437",
+        state="COMPLETE",
+        commit=foundation_commit,
+        run_kind="final_foundation",
+    )
+    foundation = {
+        "status": "PASS",
+        "protocol_decision": "FINAL_FOUNDATION_COMPLETE_M1_AUTHORIZED",
+        "source_git_commit": foundation_commit,
+        "experiment_config_hash": source_spec.raw["foundation_reuse"]["source_experiment_config_hash"],
+        "content_matching_passed": True,
+        "test_predictions_or_performance_used": False,
+    }
+    spec.aggregate_root.mkdir(parents=True)
+    (spec.aggregate_root / "foundation.json").write_text(json.dumps(foundation), encoding="utf-8")
+    foundation_provenance = validate_foundation_reuse(
+        repository_root=tmp_path,
+        spec=spec,
+        foundation=foundation,
+        current_source_git_commit=upstream,
+    )
+    config_hash = stable_hash(spec.raw)
+    throughput = {
+        "status": "PASS",
+        "experiment_id": spec.experiment_id,
+        "experiment_config_hash": config_hash,
+        "source_git_commit": upstream,
+        "foundation_provenance": foundation_provenance,
+        "outcomes_or_performance_read": False,
+        "test_predictions_or_performance_used": False,
+    }
+    (spec.aggregate_root / "throughput.json").write_text(json.dumps(throughput), encoding="utf-8")
+    embedding_root = spec.aggregate_root / "embedding"
+    embedding_root.mkdir()
+    for task in FINAL_TASKS:
+        report = {
+            "status": "PASS",
+            "experiment_id": spec.experiment_id,
+            "experiment_config_hash": config_hash,
+            "source_git_commit": upstream,
+            "task": task,
+            "condition_level_caches": True,
+            "immutable_verified_cache_reuse": True,
+            "pilot_cache_reused": False,
+            "metadata_mirrors_every_embedding_row": True,
+            "test_split_used": False,
+        }
+        (embedding_root / f"{task}.json").write_text(json.dumps(report), encoding="utf-8")
+    _write_job_status(
+        tmp_path,
+        status_id="444",
+        state="COMPLETE",
+        commit=upstream,
+        run_kind="final_throughput",
+    )
+    for index in range(4):
+        _write_job_status(
+            tmp_path,
+            status_id=f"445_{index}",
+            state="COMPLETE",
+            commit=upstream,
+            run_kind="final_m1_embed_task",
+        )
+    failed = _write_job_status(
+        tmp_path,
+        status_id="446",
+        state="FAILED",
+        commit=upstream,
+        run_kind="final_m1_fit_validation",
+    )
+    authorization = yaml.safe_load(
+        Path("configs/recovery/prompt3_fit_after_446.yaml").read_text(encoding="utf-8")
+    )
+    authorization_path = tmp_path / "configs/recovery/prompt3_fit_after_446.yaml"
+    authorization_path.parent.mkdir(parents=True)
+    authorization_path.write_text(yaml.safe_dump(authorization), encoding="utf-8")
+    return spec, authorization_path, file_sha256(failed)
+
+
+def test_fit_only_recovery_accepts_exact_completed_upstream_chain(tmp_path: Path) -> None:
+    spec, authorization, failed_hash = _fit_recovery_fixture(tmp_path)
+    result = load_and_validate_fit_inputs(
+        repository_root=tmp_path,
+        spec=spec,
+        current_source_git_commit="f" * 40,
+        recovery_authorization_path=authorization,
+        expected_failed_sentinel_sha256=failed_hash,
+    )
+    assert result.provenance["mode"] == "validated_fit_only_recovery"
+    assert result.provenance["source_jobs"]["failed_fit"]["preserved_unchanged"] is True
+    assert result.provenance["expensive_stages_rerun"] is False
+
+
+def test_fit_only_recovery_rejects_missing_or_drifted_upstream_evidence(tmp_path: Path) -> None:
+    spec, authorization, failed_hash = _fit_recovery_fixture(tmp_path)
+    (tmp_path / "outputs/private/run_status/445_2/COMPLETE.json").unlink()
+    with pytest.raises(ContractError, match="445_2"):
+        load_and_validate_fit_inputs(
+            repository_root=tmp_path,
+            spec=spec,
+            current_source_git_commit="f" * 40,
+            recovery_authorization_path=authorization,
+            expected_failed_sentinel_sha256=failed_hash,
+        )
+
+
+def test_fit_only_recovery_rejects_partial_fit_and_failed_sentinel_drift(tmp_path: Path) -> None:
+    spec, authorization, failed_hash = _fit_recovery_fixture(tmp_path)
+    predictions = spec.private_root / "fit/validation_predictions.parquet"
+    predictions.parent.mkdir(parents=True)
+    predictions.write_bytes(b"partial")
+    with pytest.raises(ContractError, match="partial/final"):
+        load_and_validate_fit_inputs(
+            repository_root=tmp_path,
+            spec=spec,
+            current_source_git_commit="f" * 40,
+            recovery_authorization_path=authorization,
+            expected_failed_sentinel_sha256=failed_hash,
+        )
+    predictions.unlink()
+    failed = tmp_path / "outputs/private/run_status/446/FAILED.json"
+    failed.write_text(failed.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    with pytest.raises(ContractError, match="hash"):
+        load_and_validate_fit_inputs(
+            repository_root=tmp_path,
+            spec=spec,
+            current_source_git_commit="f" * 40,
+            recovery_authorization_path=authorization,
+            expected_failed_sentinel_sha256=failed_hash,
+        )
+
+
 def _condition_data(*, mismatched: bool = False):
     metadata = []
     vectors = []
@@ -594,6 +767,7 @@ def test_final_slurm_chain_is_containerized_task_mapped_and_atomic() -> None:
     common = Path("scripts/slurm/final_job_common.sh").read_text(encoding="utf-8")
     assert "RUNNING" in common and "COMPLETE" in common and "FAILED" in common
     assert "export FINAL_M1_GIT_COMMIT" in common
+    assert "FINAL_STATUS_SOURCE_FAILED_SENTINEL_SHA256" in common
     submit = Path("scripts/slurm/submit_prompt3_execution.sh").read_text(encoding="utf-8")
     assert "git status --porcelain" in submit
     assert "Qwen3-Embedding-8B" in submit
@@ -612,6 +786,15 @@ def test_final_slurm_chain_is_containerized_task_mapped_and_atomic() -> None:
     assert "review_final_foundation.py" in recovery
     assert 'afterok:${THROUGHPUT_JOB_ID}' in recovery
     assert 'afterok:${EMBED_ARRAY_JOB_ID}' in recovery
+    fit_recovery = Path("scripts/slurm/submit_prompt3_fit_recovery.sh").read_text(encoding="utf-8")
+    assert fit_recovery.count("\n  sbatch ") == 1
+    assert "fit-reuse-gate" in fit_recovery
+    assert "SOURCE_FAILED_FIT_JOB_ID=\"446\"" in fit_recovery
+    assert "SOURCE_THROUGHPUT_JOB_ID=\"444\"" in fit_recovery
+    assert "SOURCE_EMBED_ARRAY_JOB_ID=\"445\"" in fit_recovery
+    assert "23_final_m1_fit_validation.sbatch" in fit_recovery
+    assert "21_final_throughput.sbatch" not in fit_recovery
+    assert "22_final_m1_embed_task_array.sbatch" not in fit_recovery
     smoke_8b = Path("scripts/slurm/06_smoke_qwen_8b.sbatch").read_text(encoding="utf-8")
     assert "#SBATCH --nodelist=dgit00038673" in smoke_8b
 

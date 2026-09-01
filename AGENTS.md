@@ -42,11 +42,13 @@ dependent jobs 431–433 were canceled. The governed aggregate audit supports ex
 duplicate-time group before ranking, regardless of label values. That fail-closed clarification is
 verified by foundation job 437 at commit `1eb0d35`; its aggregate, semantic reviewer, and notebook
 validator passed. Throughput job 438 then measured the anemia 0.6B primary workload at 42,700.11
-seconds under the required 2x contingency. It failed only because an additional non-prespecified
-900-second reserve exceeded the 43,200-second site limit. Preserve jobs 437/438 and reuse the exact
-foundation while changing only that reserve to 300 seconds; submit throughput and downstream jobs
-through `scripts/slurm/submit_prompt3_after_foundation.sh`. M2, M3, and held-out evaluation remain
-prohibited.
+seconds under the required 2x contingency and failed only because an additional 900-second reserve
+exceeded the site limit. The reviewed recovery at commit
+`77c47f322b98fc74196cc56a0a16edc43604c887` completed throughput 444 and embedding tasks 445_0
+through 445_3. Fit 446 failed before fitting because its gate still required the reused foundation
+to share the newest source commit. Preserve all completed artifacts and sentinels. The sole next
+execution is `scripts/slurm/submit_prompt3_fit_recovery.sh`, which submits only job 23 after exact
+cross-commit validation. M2, M3, and held-out evaluation remain prohibited.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those

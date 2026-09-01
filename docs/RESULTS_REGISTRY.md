@@ -1,6 +1,6 @@
 # Results registry
 
-Status date: 2026-08-29
+Status date: 2026-09-01
 
 This registry records only privacy-safe phase state, source provenance, job identifiers, aggregate
 paths, and gates. It never records patient-level values or held-out performance.
@@ -13,6 +13,6 @@ paths, and gates. It never records patient-level values or held-out performance.
 | Prompt 2 implementation | `25aaed1` | None at source-completion time | None | SOURCE COMPLETE | Pinned 0.6B smoke |
 | Prompt 2 numerical repair | `cb07cb5` | 411 is retained failed smoke evidence; corrected successor smoke passed | Synthetic smoke report records finite unit-normalized 1,024-dimensional output | VERIFIED | Complete dependency-locked pilot |
 | Prompt 2 complete pilot | `ae35c50982ed56cee9a90875cdc98a05f63ffd54` | 415, 416, 417_0, 417_1, 417_2, 418 | `reports/generated/pilot/three_task_m1_engineering_pilot_v1/pilot_results.json`, SHA-256 `6b2d812cf430ed186fae00615e3b302dd8da58294b23902a74ef514c4047494d`; handoff SHA-256 `e95300137aaa317a65138f9fa55a4f121ab466fb5ed3d869c5f6660e21930042` | COMPLETE; FINAL PANEL UNCHANGED; NO TEST USE | Prompt 3 final M1 implementation |
-| Prompt 3 final M1 validation | Foundation source `1eb0d3535b0afaff0b82b4d430144ca7df372a8c`; current recovery source adds exact cross-commit provenance | 421 canceled stalled download; 423, 429, 436 synthetic 8B smoke PASS; 424 Pyxis failure; 430 duplicate-time fail-closed; 437 foundation COMPLETE; 438 throughput gate FAILED; 439–440 canceled | `foundation.json` passed semantic/notebook validation; outcome-blind diagnostic measured 1.40777 primary documents/s and identified only anemia as reserve-limited; no embedding/model result or test use | FOUNDATION COMPLETE; RECOVERY SOURCE/LOCAL TESTS PASS | Preserve 437/438; submit post-foundation chain with 2x contingency and 300-second reserve |
+| Prompt 3 final M1 validation | Foundation `1eb0d3535b0afaff0b82b4d430144ca7df372a8c`; throughput/embeddings `77c47f322b98fc74196cc56a0a16edc43604c887`; fit-only validator pending commit | 437 foundation COMPLETE; 438 preserved throughput failure; 444 throughput COMPLETE; 445_0–445_3 embeddings COMPLETE; 446 fit gate FAILED before fitting | Foundation, throughput, and four embedding aggregates/caches passed their gates; fit-only recovery passed 98 local tests and all static/privacy checks; no final predictions/report, M2/M3, or test use | FIT-ONLY RECOVERY SOURCE/LOCAL VALIDATION PASS | Preserve 437/444/445/446; submit job 23 only through the fit-recovery helper |
 | Prompt 4 M2/M3 validation and freeze | Pending | Pending | Pending | BLOCKED | Complete Prompt 3 M1 validation |
 | Prompt 5 one-time held-out evaluation | Pending | Pending | Pending | LOCKED | Frozen hashed manifest and every Prompt 5 authorization gate |

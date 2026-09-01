@@ -1,6 +1,6 @@
 # Project state
 
-Status date: 2026-08-29
+Status date: 2026-09-01
 
 ## Source state
 
@@ -96,3 +96,14 @@ Status date: 2026-08-29
   seconds, validates exact reuse of job 437 across that execution-only change, and resubmits only
   throughput plus downstream work. No cohort, prepared input, task, model, condition, or outcome
   definition changes.
+- Commit `77c47f322b98fc74196cc56a0a16edc43604c887` implemented that exact reserve recovery.
+  Throughput job 444 completed, and embedding array tasks 445_0 through 445_3 each wrote
+  COMPLETE/exit-0 at that commit. Their four aggregate embedding reports and immutable verified
+  caches exist; do not rerun or re-encode them.
+- Fit job 446 failed before reading caches or fitting a classifier because `report.py` still
+  required the reused job-437 foundation's source commit to equal the current fit commit. No final
+  predictions, final M1 aggregate, or Notebook 06 output was created. The fit-only repair validates
+  the exact job 437/444/445 provenance and hashes, preserves job 446's FAILED sentinel, and submits
+  only job 23. It passed 98 local synthetic tests, Ruff, shell syntax, project-context, privacy, and
+  pre-push checks. Prompt 3 is not complete until that recovery writes COMPLETE and both final
+  semantic validators pass.

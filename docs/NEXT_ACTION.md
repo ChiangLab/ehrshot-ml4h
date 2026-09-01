@@ -1,12 +1,12 @@
 # Next action
 
-Status date: 2026-08-30
+Status date: 2026-09-01
 
-For the active `prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md`, put the locally validated
-throughput-reserve recovery on `origin/main` and pull it into the clean DGX checkout. Preserve the
-COMPLETE foundation job 437 and FAILED throughput job 438. Submit only throughput, the embedding
-array, and fit/report through `scripts/slurm/submit_prompt3_after_foundation.sh`; its preflight must
-validate the exact job-437 sentinel, prior configuration hash, private foundation hashes, semantic
-report, and the sole execution-only reserve change from 900 to 300 seconds. The required 2x runtime
-contingency remains unchanged. Require all new atomic sentinels, validators, hashes, and the
-privacy-safe aggregate handoff. Do not run M2, M3, or held-out test evaluation.
+For the active `prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md`, commit and push the
+locally validated fit-provenance repair, then pull it into the clean DGX checkout. Preserve
+foundation 437, throughput 444, embedding tasks 445_0 through 445_3, and failed fit 446 unchanged.
+Submit only `scripts/slurm/23_final_m1_fit_validation.sbatch` through the fail-closed helper
+`scripts/slurm/submit_prompt3_fit_recovery.sh`. Its preflight must validate all upstream source,
+configuration, report, sentinel, and SHA-256 evidence and reject any partial fit output. Require the
+new fit COMPLETE sentinel, final aggregate/notebook validators, and a privacy-safe handoff before
+closing Prompt 3. Do not rerun any model, run M2/M3, or access held-out test evaluation.

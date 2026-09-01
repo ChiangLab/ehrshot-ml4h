@@ -11,6 +11,7 @@ from pathlib import Path
 
 from temporal_ehr.experiments import load_final_m1_authorization
 from temporal_ehr.final_m1.embedding import embed_final_task
+from temporal_ehr.final_m1.fit_recovery import load_and_validate_fit_inputs
 from temporal_ehr.final_m1.foundation import build_final_foundation
 from temporal_ehr.final_m1.gates import require_prompt3_hard_gates
 from temporal_ehr.final_m1.report import fit_final_m1_and_report
@@ -42,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("hard-gates")
     subparsers.add_parser("foundation")
     subparsers.add_parser("foundation-reuse-gate")
+    subparsers.add_parser("fit-reuse-gate")
     subparsers.add_parser("throughput")
     embed = subparsers.add_parser("embed-task")
     embed.add_argument("--task-index", type=int, required=True)
@@ -86,6 +88,23 @@ def main() -> int:
             model_root=_environment_path("TEMPORAL_EHR_MODEL_ROOT"),
             source_git_commit=_source_commit(),
         )
+    elif args.command == "fit-reuse-gate":
+        spec = load_final_m1_authorization(config, repository_root=root)
+        authorization = _environment_path("FINAL_M1_FIT_RECOVERY_CONFIG")
+        validated = load_and_validate_fit_inputs(
+            repository_root=root,
+            spec=spec,
+            current_source_git_commit=_source_commit(),
+            recovery_authorization_path=authorization,
+            expected_failed_sentinel_sha256=os.environ.get(
+                "FINAL_M1_EXPECTED_FAILED_SENTINEL_SHA256"
+            ),
+        )
+        result = {
+            "status": "PASS",
+            "experiment_id": spec.experiment_id,
+            "fit_input_provenance": validated.provenance,
+        }
     elif args.command == "embed-task":
         spec = load_final_m1_authorization(config, repository_root=root)
         if args.task_index < 0 or args.task_index >= len(spec.tasks):
@@ -98,11 +117,16 @@ def main() -> int:
             source_git_commit=_source_commit(),
         )
     else:
+        recovery_config = os.environ.get("FINAL_M1_FIT_RECOVERY_CONFIG")
         result = fit_final_m1_and_report(
             repository_root=root,
             config_path=config,
             model_root=_environment_path("TEMPORAL_EHR_MODEL_ROOT"),
             source_git_commit=_source_commit(),
+            recovery_authorization_path=Path(recovery_config) if recovery_config else None,
+            expected_failed_sentinel_sha256=os.environ.get(
+                "FINAL_M1_EXPECTED_FAILED_SENTINEL_SHA256"
+            ),
         )
     print(
         json.dumps(

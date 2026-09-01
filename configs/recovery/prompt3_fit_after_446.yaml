@@ -1,0 +1,31 @@
+version: 1
+mode: FIT_ONLY_RECOVERY
+experiment_id: locked_four_task_m1_v1
+experiment_config_hash: ab0921bc222af94a0d3715ab2ce65d73a14ccf7503b9a15eac3e13511cfb7d9e
+upstream_source_git_commit: 77c47f322b98fc74196cc56a0a16edc43604c887
+source_jobs:
+  foundation:
+    job_id: 437
+    source_git_commit: 1eb0d3535b0afaff0b82b4d430144ca7df372a8c
+  throughput:
+    job_id: 444
+    source_git_commit: 77c47f322b98fc74196cc56a0a16edc43604c887
+  embedding_array:
+    job_id: 445
+    indices:
+      - 0
+      - 1
+      - 2
+      - 3
+    source_git_commit: 77c47f322b98fc74196cc56a0a16edc43604c887
+  failed_fit:
+    job_id: 446
+    source_git_commit: 77c47f322b98fc74196cc56a0a16edc43604c887
+controls:
+  preserve_source_failed_sentinel: true
+  rerun_foundation: false
+  rerun_throughput: false
+  rerun_embeddings: false
+  require_no_partial_fit_artifacts: true
+  test_predictions_or_performance_used: false
+  m2_or_m3_run: false

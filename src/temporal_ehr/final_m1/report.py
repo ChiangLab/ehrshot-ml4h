@@ -19,6 +19,7 @@ from sklearn.metrics import roc_auc_score
 from temporal_ehr.data.contracts import ContractError, assert_privacy_safe_report
 from temporal_ehr.experiments import FinalM1Authorization, load_final_m1_authorization
 from temporal_ehr.final_m1.embedding import condition_label, load_final_condition_embeddings
+from temporal_ehr.final_m1.fit_recovery import load_and_validate_fit_inputs
 from temporal_ehr.final_m1.foundation import _write_immutable_json
 from temporal_ehr.final_m1.throughput import read_final_task_texts
 from temporal_ehr.pilot.cache import file_sha256
@@ -432,33 +433,22 @@ def fit_final_m1_and_report(
     config_path: Path,
     model_root: Path,
     source_git_commit: str,
+    recovery_authorization_path: Path | None = None,
+    expected_failed_sentinel_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Fit final M1 readouts and write a privacy-safe aggregate with no test results."""
     started = time.perf_counter()
     spec = load_final_m1_authorization(config_path, repository_root=repository_root)
-    foundation = json.loads((spec.aggregate_root / "foundation.json").read_text(encoding="utf-8"))
-    if (
-        foundation.get("status") != "PASS"
-        or foundation.get("source_git_commit") != source_git_commit
-        or foundation.get("content_matching_passed") is not True
-        or foundation.get("test_predictions_or_performance_used") is not False
-    ):
-        raise ContractError("Final fit requires the same-source completed foundation gates.")
-    throughput = json.loads((spec.aggregate_root / "throughput.json").read_text(encoding="utf-8"))
-    if throughput.get("status") != "PASS" or throughput.get("source_git_commit") != source_git_commit:
-        raise ContractError("Final fit requires the same-source completed throughput gate.")
-    embedding_reports = {
-        task: json.loads((spec.aggregate_root / "embedding" / f"{task}.json").read_text(encoding="utf-8"))
-        for task in spec.tasks
-    }
-    if any(
-        report.get("status") != "PASS"
-        or report.get("source_git_commit") != source_git_commit
-        or report.get("pilot_cache_reused") is not False
-        or report.get("test_split_used") is not False
-        for report in embedding_reports.values()
-    ):
-        raise ContractError("A final task embedding report failed identity, isolation, or split gates.")
+    validated_inputs = load_and_validate_fit_inputs(
+        repository_root=repository_root,
+        spec=spec,
+        current_source_git_commit=source_git_commit,
+        recovery_authorization_path=recovery_authorization_path,
+        expected_failed_sentinel_sha256=expected_failed_sentinel_sha256,
+    )
+    foundation = validated_inputs.foundation
+    throughput = validated_inputs.throughput
+    embedding_reports = validated_inputs.embedding_reports
     primary_identity = load_model_identity(
         model_root / spec.primary_model_directory_name,
         expected_repository=spec.primary_model_repository,
@@ -657,6 +647,7 @@ def fit_final_m1_and_report(
         "experiment_id": spec.experiment_id,
         "experiment_config_hash": stable_hash(spec.raw),
         "source_git_commit": source_git_commit,
+        "fit_input_provenance": validated_inputs.provenance,
         "scientific_scope": {
             "tasks": list(spec.tasks),
             "splits": list(spec.splits),

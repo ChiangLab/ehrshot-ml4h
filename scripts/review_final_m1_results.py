@@ -33,6 +33,10 @@ SEEDS = (20260815, 20260816, 20260817)
 METRICS = {"auroc", "auprc", "brier_score", "log_loss"}
 
 
+def _is_sha256(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+
+
 def _reject_row_fields(value: Any) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
@@ -91,6 +95,52 @@ def validate_final_m1_report(payload: dict[str, Any]) -> None:
         )
     ):
         raise ContractError("Final M1 report violates content, isolation, test, or model-scope gates.")
+    source_commit = payload.get("source_git_commit")
+    config_hash = payload.get("experiment_config_hash")
+    provenance = payload.get("fit_input_provenance", {})
+    if (
+        not isinstance(source_commit, str)
+        or len(source_commit) != 40
+        or not _is_sha256(config_hash)
+        or provenance.get("fit_source_git_commit") != source_commit
+        or provenance.get("experiment_config_hash") != config_hash
+        or provenance.get("expensive_stages_rerun") is not False
+        or provenance.get("test_predictions_or_performance_used") is not False
+    ):
+        raise ContractError("Final M1 fit-input provenance is incomplete or inconsistent.")
+    if provenance.get("mode") == "validated_fit_only_recovery":
+        upstream = provenance.get("upstream_source_git_commit")
+        source_jobs = provenance.get("source_jobs", {})
+        foundation_job = source_jobs.get("foundation", {})
+        throughput_job = source_jobs.get("throughput", {})
+        embedding_job = source_jobs.get("embedding_array", {})
+        failed_fit_job = source_jobs.get("failed_fit", {})
+        if (
+            upstream != "77c47f322b98fc74196cc56a0a16edc43604c887"
+            or foundation_job.get("job_id") != 437
+            or foundation_job.get("source_git_commit")
+            != "1eb0d3535b0afaff0b82b4d430144ca7df372a8c"
+            or not _is_sha256(foundation_job.get("complete_sentinel_sha256"))
+            or throughput_job.get("job_id") != 444
+            or throughput_job.get("source_git_commit") != upstream
+            or not _is_sha256(throughput_job.get("complete_sentinel_sha256"))
+            or embedding_job.get("job_id") != 445
+            or embedding_job.get("indices") != [0, 1, 2, 3]
+            or embedding_job.get("source_git_commit") != upstream
+            or set(embedding_job.get("complete_sentinel_sha256_by_index", {}))
+            != {"0", "1", "2", "3"}
+            or any(
+                not _is_sha256(value)
+                for value in embedding_job.get("complete_sentinel_sha256_by_index", {}).values()
+            )
+            or failed_fit_job.get("job_id") != 446
+            or failed_fit_job.get("source_git_commit") != upstream
+            or not _is_sha256(failed_fit_job.get("failed_sentinel_sha256"))
+            or failed_fit_job.get("preserved_unchanged") is not True
+        ):
+            raise ContractError("Final M1 fit-only recovery provenance drifted.")
+    elif provenance.get("mode") != "same_source_downstream":
+        raise ContractError("Final M1 fit-input provenance mode is not authorized.")
     scope = payload.get("scientific_scope", {})
     if (
         scope.get("tasks") != list(FINAL_TASKS)
@@ -245,6 +295,33 @@ def validate_private_postconditions(payload: dict[str, Any], root: Path) -> None
         raise ContractError("Final private prediction row count drifted.")
     if set(table["task"].to_pylist()) != set(FINAL_TASKS):
         raise ContractError("Final private predictions do not cover exactly four tasks.")
+    provenance = payload["fit_input_provenance"]
+    aggregate_hashes = provenance.get("aggregate_sha256", {})
+    paths = {
+        "foundation": root / "reports/generated/final/locked_four_task_m1_v1/foundation.json",
+        "throughput": root / "reports/generated/final/locked_four_task_m1_v1/throughput.json",
+    }
+    if any(
+        not path.is_file() or file_sha256(path) != aggregate_hashes.get(name)
+        for name, path in paths.items()
+    ):
+        raise ContractError("Final fit source aggregate hashes drifted.")
+    embedding_hashes = aggregate_hashes.get("embedding_by_task", {})
+    embedding_paths = {
+        task: root / f"reports/generated/final/locked_four_task_m1_v1/embedding/{task}.json"
+        for task in FINAL_TASKS
+    }
+    if set(embedding_hashes) != set(FINAL_TASKS) or any(
+        not embedding_paths[task].is_file()
+        or file_sha256(embedding_paths[task]) != embedding_hashes[task]
+        for task in FINAL_TASKS
+    ):
+        raise ContractError("Final fit source embedding aggregate hashes drifted.")
+    if provenance.get("mode") == "validated_fit_only_recovery":
+        failed_fit = provenance["source_jobs"]["failed_fit"]
+        failed_path = root / f"outputs/private/run_status/{failed_fit['job_id']}/FAILED.json"
+        if not failed_path.is_file() or file_sha256(failed_path) != failed_fit["failed_sentinel_sha256"]:
+            raise ContractError("Source fit FAILED sentinel was not preserved unchanged.")
 
 
 def load_final_m1_report(path: Path, root: Path, *, private_postconditions: bool) -> dict[str, Any]:

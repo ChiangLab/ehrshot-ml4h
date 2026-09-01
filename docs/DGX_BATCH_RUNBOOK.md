@@ -21,6 +21,10 @@
   extra 900-second reserve exceeded the 43,200-second site limit. Preserve both sentinels. The
   reviewed recovery changes only the reserve to 300 seconds and reuses job 437 through exact
   provenance/config/hash validation; it does not rerun the foundation.
+- That recovery completed throughput 444 and embedding tasks 445_0 through 445_3 at commit
+  `77c47f322b98fc74196cc56a0a16edc43604c887`. Fit 446 failed before fitting on an overly strict
+  foundation source-equality check. Preserve all of these artifacts. The next run must be fit-only;
+  do not submit the full chain or either earlier recovery helper again.
 - A valid run needs scheduler completion when accounting is available, a clean log, a job-specific
   COMPLETE sentinel with exit status 0, and semantic postconditions. This site has disabled
   historical `sacct`; in that case require disappearance from `squeue` plus the durable evidence.
@@ -475,6 +479,86 @@ The helper first validates job 437's COMPLETE/exit-0 source identity, the exact 
 hash, the sole reserve change, the aggregate semantics, and all private foundation hashes. It also
 hash-records job 438's FAILED sentinel and refuses an existing throughput aggregate. Only then does
 it submit a new throughput job, task array, and fit/report job.
+
+### Fit-only recovery after job 446
+
+Jobs 444 and 445_0 through 445_3 are COMPLETE. Job 446 failed before fitting, so no final prediction
+table, final M1 report, or Notebook 06 output exists. After the fit-recovery source is committed,
+pushed, and pulled into a clean DGX checkout, run exactly:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+git status --short --branch
+git pull --ff-only origin main
+
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+
+bash scripts/slurm/submit_prompt3_fit_recovery.sh
+source outputs/private/prompt3_job_ids.env
+squeue -j "${FIT_JOB_ID}" -o "%.18i %.12P %.28j %.2t %.10M %.10l %R"
+```
+
+The helper validates the exact experiment hash; job 437, 444, and 445 COMPLETE sentinels; all
+upstream aggregate hashes; the unchanged job-446 FAILED hash; and the absence of partial fit
+outputs. It runs package-dependent preflight inside the pinned container and submits only
+`23_final_m1_fit_validation.sbatch`. It never schedules foundation, throughput, embedding, or
+model inference. Once the new fit ID is pending or running, SSH may be exited and the VPN may be
+disconnected.
+
+After the fit leaves `squeue`, reconnect to VPN and verify it independently:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+source outputs/private/prompt3_job_ids.env
+
+tail -n 300 "slurm-tehr-final-m1-fit-${FIT_JOB_ID}.out"
+test -s "outputs/private/run_status/${FIT_JOB_ID}/COMPLETE.json"
+test ! -e "outputs/private/run_status/${FIT_JOB_ID}/FAILED.json"
+test -s outputs/private/run_status/446/FAILED.json
+test -s reports/generated/final/locked_four_task_m1_v1/final_m1_validation.json
+test -s outputs/private/executed_notebooks/06_final_m1_results.ipynb
+
+SOURCE_FAILED_FIT_SENTINEL_SHA256="${SOURCE_FAILED_FIT_SENTINEL_SHA256}" \
+SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
+FIT_JOB_ID="${FIT_JOB_ID}" \
+PYTHONPATH=src .venv/bin/python - <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+complete = json.loads(
+    Path(f"outputs/private/run_status/{os.environ['FIT_JOB_ID']}/COMPLETE.json").read_text()
+)
+assert complete["state"] == "COMPLETE"
+assert complete["exit_status"] == 0
+assert complete["git_commit"] == os.environ["SOURCE_GIT_COMMIT"]
+assert complete["source_job_id"] == "446"
+assert complete["source_failed_sentinel_sha256"] == os.environ[
+    "SOURCE_FAILED_FIT_SENTINEL_SHA256"
+]
+assert digest(Path("outputs/private/run_status/446/FAILED.json")) == os.environ[
+    "SOURCE_FAILED_FIT_SENTINEL_SHA256"
+]
+print("PASS: fit recovery COMPLETE and job 446 FAILED sentinel preserved")
+PY
+
+srun --partition=batch --nodelist=dgit00038673 --cpus-per-task=2 --mem=8G --time=00:30:00 \
+  --container-image=/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh \
+  --container-mounts=/data:/data --container-workdir="$PWD" \
+  env PYTHONPATH=src .venv/bin/python scripts/review_final_m1_results.py \
+    --report reports/generated/final/locked_four_task_m1_v1/final_m1_validation.json \
+    --private-postconditions
+srun --partition=batch --nodelist=dgit00038673 --cpus-per-task=2 --mem=8G --time=00:15:00 \
+  --container-image=/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh \
+  --container-mounts=/data:/data --container-workdir="$PWD" \
+  env PYTHONPATH=src .venv/bin/python scripts/validate_executed_notebook.py \
+    outputs/private/executed_notebooks/06_final_m1_results.ipynb
+```
 
 To monitor later, reconnect to VPN and SSH, then run:
 

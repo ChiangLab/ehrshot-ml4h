@@ -1,6 +1,6 @@
 # Current scientific protocol
 
-Status date: 2026-08-29. This is a concise operational index; the final August 14 protocol and
+Status date: 2026-09-01. This is a concise operational index; the final August 14 protocol and
 `PROTOCOL_DEVIATIONS.md` remain authoritative for detail and unresolved differences.
 
 ## Cohort and panel
@@ -14,9 +14,10 @@ Status date: 2026-08-29. This is a concise operational index; the final August 1
 - The complete three-task engineering pilot passed for Qwen3-Embedding-0.6B, 4,096 tokens, M1
   direct serialization, B1-B4, and train/validation only. Pilot artifacts cannot satisfy
   final-panel gates and pilot performance cannot alter the prespecified final panel.
-- Prompt 3 source implements the versioned `locked_four_task_m1_v1` final-panel cohort and final
-  M1 validation experiment. Local synthetic verification is complete; governed DGX execution is
-  pending. M2, M3, and held-out evaluation remain locked.
+- Prompt 3's versioned `locked_four_task_m1_v1` foundation, runtime-only feasibility gate, and all
+  four task-level embedding caches are complete on the DGX. The final validation readout/report is
+  pending a fit-only provenance recovery after job 446 failed before fitting. M2, M3, and held-out
+  evaluation remain locked.
 
 ## Time, windows, and evidence identity
 
@@ -53,9 +54,9 @@ Status date: 2026-08-29. This is a concise operational index; the final August 1
 - Final M1 uses Qwen3-Embedding-0.6B at 8,192 tokens. A separate runtime/memory-only throughput
   gate benchmarks the complete pinned 8B model and admits only a feasible prefix of C1, C3,
   latest-window, and latest-code priority, using a 2x time contingency and no outcome metric.
-- The DGX site limit is 12 hours. The runtime gate retains the full 2x measured contingency and a
-  five-minute execution reserve; this is an engineering allocation rule and changes no scientific
-  input, model, condition, or evaluation definition.
+- The DGX site limit is 12 hours. Verified job 444 retained the full 2x measured contingency and a
+  five-minute execution reserve; this engineering allocation rule changes no scientific input,
+  model, condition, or evaluation definition.
 - M2: one authorized local, non-recursive longitudinal summary, frozen embedding, then logistic
   regression. It is RAPTOR-inspired compression, not a RAPTOR hierarchy.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus
