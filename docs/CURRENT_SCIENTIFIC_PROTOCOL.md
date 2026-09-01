@@ -14,10 +14,10 @@ Status date: 2026-09-01. This is a concise operational index; the final August 1
 - The complete three-task engineering pilot passed for Qwen3-Embedding-0.6B, 4,096 tokens, M1
   direct serialization, B1-B4, and train/validation only. Pilot artifacts cannot satisfy
   final-panel gates and pilot performance cannot alter the prespecified final panel.
-- Prompt 3's versioned `locked_four_task_m1_v1` foundation, runtime-only feasibility gate, and all
-  four task-level embedding caches are complete on the DGX. The final validation readout/report is
-  pending a fit-only provenance recovery after job 446 failed before fitting. M2, M3, and held-out
-  evaluation remain locked.
+- Prompt 3's versioned `locked_four_task_m1_v1` foundation, runtime-only feasibility gate, four
+  task-level embedding caches, final validation readout, and aggregate notebook are complete.
+  Fit-only recovery job 451 validated exact upstream provenance while preserving failed job 446.
+  Prompt 4 M2/M3 implementation is active; held-out evaluation remains locked.
 
 ## Time, windows, and evidence identity
 
@@ -58,9 +58,13 @@ Status date: 2026-09-01. This is a concise operational index; the final August 1
   five-minute execution reserve; this engineering allocation rule changes no scientific input,
   model, condition, or evaluation definition.
 - M2: one authorized local, non-recursive longitudinal summary, frozen embedding, then logistic
-  regression. It is RAPTOR-inspired compression, not a RAPTOR hierarchy.
+  regression. It is RAPTOR-inspired compression, not a RAPTOR hierarchy. Summary generation must
+  be deterministic where supported, preserve supplied falsified time labels rather than repair
+  them, and remain entirely on the authorized on-premise endpoint.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus
-  logistic regression is the required capacity comparator.
+  logistic regression is the required capacity comparator. The locked architecture uses at most 64
+  recent nonempty windows, 512 tokens per window, hidden size 128, dropout 0.1, AdamW, and three
+  frozen seeds.
 - Development and selection use training/validation only. The held-out test split is prohibited
   until panel, serializers, prompts, hyperparameters, models, seeds, statistics, and an immutable
   experiment manifest are frozen. Test results may be evaluated once and may not change design.

@@ -4,9 +4,8 @@ Status date: 2026-09-01
 
 ## Source state
 
-- Prompt 3 source, container-preflight repair, and verified-node pin are on Mac, `origin/main`, and
-  the DGX through commit `f45e61c0861b246a0f0061f7dcf4e9aa65ced880`. The subsequent duplicate
-  official prediction-time repair is commit `1eb0d3535b0afaff0b82b4d430144ca7df372a8c`.
+- Prompt 3 source and its fit-recovery validator are on Mac, `origin/main`, and the DGX through
+  commit `ef1b0debfa963ee365645ec2f754d8d129e071ce`.
 - Baseline source commit for DGX job 407:
   `f9a370c7fe1cb13edd126128cfddc79100852913`.
 - That commit contains the 12-hour Phase 1 alignment runner and protocol-aligned serializer QC.
@@ -101,9 +100,12 @@ Status date: 2026-09-01
   COMPLETE/exit-0 at that commit. Their four aggregate embedding reports and immutable verified
   caches exist; do not rerun or re-encode them.
 - Fit job 446 failed before reading caches or fitting a classifier because `report.py` still
-  required the reused job-437 foundation's source commit to equal the current fit commit. No final
-  predictions, final M1 aggregate, or Notebook 06 output was created. The fit-only repair validates
-  the exact job 437/444/445 provenance and hashes, preserves job 446's FAILED sentinel, and submits
-  only job 23. It passed 98 local synthetic tests, Ruff, shell syntax, project-context, privacy, and
-  pre-push checks. Prompt 3 is not complete until that recovery writes COMPLETE and both final
-  semantic validators pass.
+  required the reused job-437 foundation's source commit to equal the current fit commit. Recovery
+  job 451 then validated exact jobs 437/444/445 and the unchanged failed-job-446 hash, fit the
+  validation-only readout, executed and validated Notebook 06, and wrote COMPLETE/exit 0. The final
+  M1 report is `reports/generated/final/locked_four_task_m1_v1/final_m1_validation.json`, SHA-256
+  `6d16d6b2494042fd2c84d25ef790f030355738cf8512fb87cf5477f73a3e0c7a`. The Prompt 3 handoff SHA-256
+  is `2bd2223b13b9395ee7a725da9c260f1560c387db6cf5177f28f35999e0c56814`; it records jobs 437, 444,
+  445_0 through 445_3, 446, and 451 without patient-level content. Prompt 3 is COMPLETE, M1 is
+  frozen as reported, and held-out test performance remains untouched. Prompt 4 M2/M3 source is the
+  active phase.

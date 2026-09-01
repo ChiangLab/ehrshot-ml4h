@@ -2,11 +2,13 @@
 
 Status date: 2026-09-01
 
-For the active `prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md`, commit and push the
-locally validated fit-provenance repair, then pull it into the clean DGX checkout. Preserve
-foundation 437, throughput 444, embedding tasks 445_0 through 445_3, and failed fit 446 unchanged.
-Submit only `scripts/slurm/23_final_m1_fit_validation.sbatch` through the fail-closed helper
-`scripts/slurm/submit_prompt3_fit_recovery.sh`. Its preflight must validate all upstream source,
-configuration, report, sentinel, and SHA-256 evidence and reject any partial fit output. Require the
-new fit COMPLETE sentinel, final aggregate/notebook validators, and a privacy-safe handoff before
-closing Prompt 3. Do not rerun any model, run M2/M3, or access held-out test evaluation.
+Prompt 3 is closed by verified fit-recovery job 451. Preserve jobs 437, 444, 445_0 through 445_3,
+failed job 446, and recovery job 451 unchanged. The active prompt is
+`prompts/next/04_IMPLEMENT_M2_AND_M3.md`.
+
+Implement and locally validate the Prompt 4 M2/M3 source using synthetic fixtures only. M2 must use
+the authorized on-premise instruction endpoint, never an external API. M3 must retain the frozen
+architecture and seeds. The DGX execution order is C1 reference cells first, the prespecified
+validation-only approach-selection gate second, then only the fixed within-approach sensitivity
+cells needed for the selected approach, followed by a cryptographically hashed frozen experiment
+manifest. Do not access held-out test data or performance.

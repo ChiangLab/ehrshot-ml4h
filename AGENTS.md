@@ -32,28 +32,19 @@ clean logs, hashes, and semantic validation are the retained evidence.
 
 The final four-task panel is prospectively LOCKED and remains isolated from the completed
 three-task engineering PILOT. A pilot cohort or cache must never satisfy a final-panel gate. Prompt
-3 source implements the new versioned final cohort, Qwen3-Embedding-0.6B at 8,192 tokens, final M1
-and B1-B4, the runtime-only 8B feasibility gate, and train/validation only. The complete
-hash-manifested Qwen3-Embedding-8B snapshot is on the DGX. Commit `fe30dda` moved package-dependent
-preflight into the NVIDIA container, and `f45e61c` pinned Prompt 3 jobs to verified node
-`dgit00038673`. In the fresh chain, synthetic 8B smoke job 429 passed, but foundation job 430 found
-multiple official label rows at the same patient/task/prediction time in anemia and CheXpert;
-dependent jobs 431–433 were canceled. The governed aggregate audit supports excluding every such
-duplicate-time group before ranking, regardless of label values. That fail-closed clarification is
-verified by foundation job 437 at commit `1eb0d35`; its aggregate, semantic reviewer, and notebook
-validator passed. Throughput job 438 then measured the anemia 0.6B primary workload at 42,700.11
-seconds under the required 2x contingency and failed only because an additional 900-second reserve
-exceeded the site limit. The reviewed recovery at commit
-`77c47f322b98fc74196cc56a0a16edc43604c887` completed throughput 444 and embedding tasks 445_0
-through 445_3. Fit 446 failed before fitting because its gate still required the reused foundation
-to share the newest source commit. Preserve all completed artifacts and sentinels. The sole next
-execution is `scripts/slurm/submit_prompt3_fit_recovery.sh`, which submits only job 23 after exact
-cross-commit validation. M2, M3, and held-out evaluation remain prohibited.
+3 is COMPLETE: foundation 437, throughput 444, task embeddings 445_0 through 445_3, and fit-only
+recovery 451 all have validated COMPLETE/exit-0 evidence. Failed fit 446 remains preserved. Job 451
+ran at commit `ef1b0debfa963ee365645ec2f754d8d129e071ce`; the final M1 aggregate SHA-256 is
+`6d16d6b2494042fd2c84d25ef790f030355738cf8512fb87cf5477f73a3e0c7a` and the privacy-safe Prompt 3
+handoff SHA-256 is `2bd2223b13b9395ee7a725da9c260f1560c387db6cf5177f28f35999e0c56814`.
+The report records `FINAL_M1_VALIDATION_COMPLETE_TEST_REMAINS_LOCKED`; no M2, M3, or held-out
+evaluation was performed.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those
 files as historical planning records. The sole active implementation prompt is
-`prompts/next/03_BUILD_TRUE_FOUR_TASK_FOUNDATION_AND_M1.md`.
+`prompts/next/04_IMPLEMENT_M2_AND_M3.md`. Prompt 4 may use only train/validation evidence and
+authorized on-premise summarization; held-out evaluation remains prohibited.
 
 Canonical phase prompts live under `prompts/completed/`, `prompts/next/`, and `prompts/planned/`.
 Files numbered 03 and 04 at the top level predate the current five-prompt execution plan and remain

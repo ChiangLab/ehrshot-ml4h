@@ -482,6 +482,13 @@ it submit a new throughput job, task array, and fit/report job.
 
 ### Fit-only recovery after job 446
 
+This recovery is now complete. Job 451 ran at commit
+`ef1b0debfa963ee365645ec2f754d8d129e071ce`, wrote COMPLETE/exit 0, preserved job 446's FAILED
+sentinel, and passed the aggregate and notebook validators. The copied final M1 report SHA-256 is
+`6d16d6b2494042fd2c84d25ef790f030355738cf8512fb87cf5477f73a3e0c7a`; the copied Prompt 3 handoff
+SHA-256 is `2bd2223b13b9395ee7a725da9c260f1560c387db6cf5177f28f35999e0c56814`. The commands below remain
+as the historical recovery and verification procedure; do not resubmit it.
+
 Jobs 444 and 445_0 through 445_3 are COMPLETE. Job 446 failed before fitting, so no final prediction
 table, final M1 report, or Notebook 06 output exists. After the fit-recovery source is committed,
 pushed, and pulled into a clean DGX checkout, run exactly:
