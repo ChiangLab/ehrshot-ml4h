@@ -1,0 +1,608 @@
+"""On-premise one-pass summaries, immutable caches, and fidelity validation."""
+
+from __future__ import annotations
+
+import ipaddress
+import json
+import re
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+from urllib.parse import urljoin, urlparse
+
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+from temporal_ehr.data.contracts import ContractError, assert_privacy_safe_report
+from temporal_ehr.experiments import load_final_m1_authorization
+from temporal_ehr.final_m1.embedding import condition_label, condition_slug
+from temporal_ehr.final_m1.throughput import read_final_task_texts
+from temporal_ehr.final_m23.protocol import FinalM23Authorization, load_final_m23_authorization
+from temporal_ehr.pilot.cache import ResumableEmbeddingCache, atomic_json, file_sha256
+from temporal_ehr.pilot.model import LocalQwenEncoder, load_model_identity
+from temporal_ehr.serialization.integrity import stable_hash
+
+TIME_LABEL_RE = re.compile(r"\[TIME=\d+_\d+_DAYS_BEFORE_T\]")
+BRACKET_RE = re.compile(r"\[([^\]]+)\]")
+NUMBER_RE = re.compile(r"(?<![A-Za-z_])[-+]?\d+(?:\.\d+)?")
+UNIT_RE = re.compile(r"\bunit=([^|\n]+)")
+VALUE_RE = re.compile(r"value=([-+]?\d+(?:\.\d+)?)")
+TREND_WORDS = {"increasing", "decreasing", "stable"}
+
+
+def validate_on_premise_api_base(api_base: str) -> str:
+    """Reject public, credential-bearing, TLS-proxied, or non-HTTP summary endpoints."""
+    parsed = urlparse(api_base)
+    if parsed.scheme != "http" or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ContractError("M2 summary API must be a plain credential-free on-premise HTTP URL.")
+    try:
+        address = ipaddress.ip_address(parsed.hostname or "")
+    except ValueError as exc:
+        raise ContractError("M2 summary API must use a literal private IP address.") from exc
+    if not address.is_private or address.is_loopback or parsed.port is None:
+        raise ContractError("M2 summary API must use a non-loopback RFC1918 address and explicit port.")
+    return api_base.rstrip("/") + "/"
+
+
+class OnPremiseSummaryClient:
+    """Minimal OpenAI-compatible client that cannot route governed text externally."""
+
+    def __init__(self, *, api_base: str, model: str, timeout_seconds: int = 600) -> None:
+        self.api_base = validate_on_premise_api_base(api_base)
+        self.model = model
+        self.timeout_seconds = int(timeout_seconds)
+
+    def _request(self, path: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        data = None if payload is None else json.dumps(dict(payload)).encode("utf-8")
+        request = urllib.request.Request(
+            urljoin(self.api_base, path.lstrip("/")),
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="GET" if data is None else "POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Authorized on-premise summary endpoint request failed.") from exc
+        if not isinstance(result, dict):
+            raise RuntimeError("Authorized on-premise summary endpoint returned a non-object response.")
+        return result
+
+    def model_revision_hash(self) -> str:
+        payload = self._request("models")
+        models = payload.get("data", [])
+        record = next((item for item in models if isinstance(item, dict) and item.get("id") == self.model), None)
+        if record is None:
+            raise ContractError("The locked M2 instruction model is not served by the on-premise endpoint.")
+        stable_identity = {
+            field: record.get(field)
+            for field in ("id", "root", "parent", "owned_by", "max_model_len")
+        }
+        return stable_hash(stable_identity)
+
+    def summarize(
+        self,
+        *,
+        system_prompt: str,
+        source_text: str,
+        decoding: Mapping[str, Any],
+    ) -> str:
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": source_text},
+            ],
+            "temperature": float(decoding["temperature"]),
+            "top_p": float(decoding["top_p"]),
+            "seed": int(decoding["seed"]),
+            "max_tokens": int(decoding["max_output_tokens"]),
+            "stream": False,
+        }
+        result = self._request("chat/completions", payload)
+        try:
+            summary = str(result["choices"][0]["message"]["content"]).strip()
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError("On-premise summary response lacks assistant content.") from exc
+        if not summary:
+            raise RuntimeError("On-premise summary response was empty.")
+        return summary
+
+
+def summary_cache_key(
+    *,
+    source_hash: str,
+    condition: str,
+    prompt_hash: str,
+    model_revision_hash: str,
+    decoding_hash: str,
+) -> str:
+    """Hash every required M2 generation input; patient identity is not needed."""
+    return stable_hash(
+        {
+            "schema": "m2_summary_cache_v1",
+            "source_hash": source_hash,
+            "condition": condition,
+            "prompt_hash": prompt_hash,
+            "model_revision_hash": model_revision_hash,
+            "decoding_hash": decoding_hash,
+        }
+    )
+
+
+def m2_source_text(prepared_text: str, instruction: str) -> str:
+    """Remove M1's prediction instruction and retain only ordered observation windows."""
+    prefix = instruction.strip()
+    expected = f"{prefix}\n"
+    if prepared_text.strip() == prefix:
+        return "[NO_PRE_T_EVENTS]"
+    if not prepared_text.startswith(expected):
+        raise ContractError("Prepared M1 text does not begin with its locked task instruction.")
+    source = prepared_text[len(expected) :].strip()
+    if not source or "[" not in source:
+        raise ContractError("M2 source contains no serialized observation window.")
+    return source
+
+
+class SummaryCache:
+    """One immutable private JSON record per summary with safe resume semantics."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def path(self, cache_key: str) -> Path:
+        return self.root / "rows" / f"{cache_key}.json"
+
+    def load(self, cache_key: str, expected: Mapping[str, Any]) -> dict[str, Any] | None:
+        path = self.path(cache_key)
+        if not path.is_file():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if any(payload.get(field) != value for field, value in expected.items()):
+            raise ContractError("Existing M2 summary cache row does not match its immutable inputs.")
+        summary = payload.get("summary")
+        if not isinstance(summary, str) or not summary.strip() or payload.get("summary_hash") != stable_hash(summary):
+            raise ContractError("Existing M2 summary cache row is empty or hash-mismatched.")
+        return payload
+
+    def store(self, cache_key: str, payload: Mapping[str, Any]) -> Path:
+        path = self.path(cache_key)
+        existing = self.load(cache_key, {key: value for key, value in payload.items() if key != "summary"})
+        if existing is not None:
+            return path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_json(path, payload)
+        return path
+
+
+def _condition_rows(rows: Sequence[Mapping[str, Any]], label: str) -> list[dict[str, Any]]:
+    selected = [dict(row) for row in rows if condition_label(row) == label]
+    selected.sort(key=lambda row: (str(row["split"]), str(row["instance_key"])))
+    return selected
+
+
+def m2_stage_rows(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    spec: FinalM23Authorization,
+    stage: str,
+) -> list[dict[str, Any]]:
+    """Return reference/fidelity rows first, or selected-approach sensitivities later."""
+    if any(row.get("split") not in {"train", "validation"} for row in rows):
+        raise ContractError("M2 received a row outside train/validation.")
+    if stage == "reference":
+        c1 = _condition_rows(rows, str(spec.m2["reference_condition"]))
+        c3_label = f"{spec.m2['fidelity_condition']}:seed={spec.m2['fidelity_seed']}"
+        c3_validation = [row for row in _condition_rows(rows, c3_label) if row["split"] == "validation"]
+        sample_size = int(spec.m2["fidelity"]["histories_per_task_condition"])
+        c3_validation.sort(key=lambda row: stable_hash((row["task"], c3_label, row["instance_key"])))
+        if len(c3_validation) < sample_size:
+            raise ContractError("M2 lacks enough shuffled validation histories for fidelity sampling.")
+        return [*c1, *c3_validation[:sample_size]]
+    if stage != "sensitivity":
+        raise ValueError("M2 stage must be reference or sensitivity.")
+    selection_path = spec.aggregate_root / "approach_selection.json"
+    if not selection_path.is_file():
+        raise ContractError("M2 sensitivity requires the completed reference approach selection.")
+    selection = json.loads(selection_path.read_text(encoding="utf-8"))
+    if selection.get("selected_approach") != "M2" or selection.get("reference_cells_passed") is not True:
+        raise ContractError("M2 sensitivity is not authorized by the frozen reference selection.")
+    output: list[dict[str, Any]] = []
+    for label in spec.m2["sensitivity_conditions"]:
+        output.extend(_condition_rows(rows, str(label)))
+    return output
+
+
+def _write_parquet_once(path: Path, rows: Sequence[Mapping[str, Any]]) -> str:
+    if not rows:
+        raise ContractError("Refusing to write empty Prompt 4 private metadata.")
+    table = pa.Table.from_pylist([dict(row) for row in rows])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_file():
+        if not pq.read_table(path).equals(table):
+            raise ContractError("Existing Prompt 4 private metadata drifted.")
+    else:
+        with tempfile.NamedTemporaryFile(prefix=f".{path.name}.", dir=path.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+        try:
+            pq.write_table(table, temporary, compression="zstd")
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return file_sha256(path)
+
+
+def _embed_summaries(
+    *,
+    spec: FinalM23Authorization,
+    task: str,
+    label: str,
+    rows: Sequence[Mapping[str, Any]],
+    summaries: Mapping[str, Mapping[str, Any]],
+    encoder: LocalQwenEncoder,
+    identity_hash: str,
+    tokenizer_hash: str,
+    source_git_commit: str,
+) -> dict[str, Any]:
+    selected = [row for row in rows if condition_label(row) == label]
+    if not selected:
+        raise ContractError(f"M2 has no rows to embed for {task}/{label}.")
+    summary_keys = [str(summaries[str(row["representation_key"])]["cache_key"]) for row in selected]
+    row_keys = [
+        stable_hash({"summary_cache_key": summary_key, "instance_key": row["instance_key"]})
+        for row, summary_key in zip(selected, summary_keys, strict=True)
+    ]
+    root = spec.private_root / "m2" / "embeddings" / task / condition_slug(label)
+    configuration_hash = stable_hash(
+        {
+            "experiment": spec.experiment_id,
+            "config": stable_hash(spec.raw),
+            "source_git_commit": source_git_commit,
+            "task": task,
+            "condition": label,
+            "summary_cache_keys": summary_keys,
+            "embedding_row_keys": row_keys,
+            "model_artifact_hash": identity_hash,
+            "tokenizer_hash": tokenizer_hash,
+        }
+    )
+    metadata = [
+        {
+            "experiment_id": spec.experiment_id,
+            "task": task,
+            "split": row["split"],
+            "instance_key": row["instance_key"],
+            "target": row["target"],
+            "condition": label,
+            "summary_cache_key": summary_key,
+            "embedding_cache_key": key,
+            "embedding_row_index": index,
+            "condition_embedding_row_index": index,
+            "mirrors_embedding_row": True,
+        }
+        for index, (row, key, summary_key) in enumerate(
+            zip(selected, row_keys, summary_keys, strict=True)
+        )
+    ]
+    metadata_hash = _write_parquet_once(root / "patient_metadata.parquet", metadata)
+    cache = ResumableEmbeddingCache(
+        root,
+        row_keys=row_keys,
+        dimension=encoder.dimension,
+        configuration_hash=configuration_hash,
+    )
+    pending = cache.pending_indices()
+    if not cache.complete_path.is_file():
+        cache.begin_attempt()
+        for offset in range(0, len(pending), spec.model_batch_size):
+            indices = pending[offset : offset + spec.model_batch_size]
+            texts = [
+                str(summaries[str(selected[int(index)]["representation_key"])]["summary"])
+                for index in indices
+            ]
+            cache.write_rows(indices.tolist(), encoder.encode(texts, batch_size=spec.model_batch_size))
+        cache.finalize()
+        cache.finish_attempt()
+    vectors = cache.load_complete()
+    norms = np.linalg.norm(np.asarray(vectors, dtype=np.float64), axis=1)
+    if not np.allclose(norms, 1.0, atol=1e-6, rtol=0.0):
+        raise ContractError("M2 summary embeddings are not FP32 L2-normalized.")
+    return {
+        "condition": label,
+        "rows": len(selected),
+        "dimension": encoder.dimension,
+        "configuration_hash": configuration_hash,
+        "metadata_sha256": metadata_hash,
+        "cache_complete_sha256": file_sha256(cache.complete_path),
+        "rows_computed_this_attempt": len(pending),
+        "cache_reused_without_encoding": len(pending) == 0,
+    }
+
+
+def run_m2_task(
+    *,
+    repository_root: Path,
+    config_path: Path,
+    model_root: Path,
+    task: str,
+    stage: str,
+    source_git_commit: str,
+    client: OnPremiseSummaryClient | None = None,
+) -> dict[str, Any]:
+    """Generate/cache one-pass summaries and embed the stage-authorized conditions."""
+    spec = load_final_m23_authorization(config_path, repository_root=repository_root)
+    if task not in spec.tasks or len(source_git_commit) != 40:
+        raise ContractError("M2 task or source commit is invalid.")
+    m1 = load_final_m1_authorization(spec.m1_config_path, repository_root=repository_root)
+    rows = m2_stage_rows(read_final_task_texts(m1, task), spec=spec, stage=stage)
+    if not rows:
+        raise ContractError("M2 stage selected no prepared histories.")
+    summary_client = client or OnPremiseSummaryClient(
+        api_base=str(spec.m2["api_base"]),
+        model=str(spec.m2["instruction_model"]),
+    )
+    model_revision_hash = summary_client.model_revision_hash()
+    prompt = str(spec.m2["prompt"])
+    prompt_hash = stable_hash({"version": spec.m2["prompt_version"], "prompt": prompt})
+    decoding = dict(spec.m2["decoding"])
+    decoding_hash = stable_hash(decoding)
+    cache = SummaryCache(spec.private_root / "m2" / "summaries" / task)
+    summaries: dict[str, dict[str, Any]] = {}
+    reused = 0
+    started = time.perf_counter()
+    for row in rows:
+        label = condition_label(row)
+        source_text = m2_source_text(str(row["text"]), m1.instructions[task])
+        source_hash = stable_hash(source_text)
+        key = summary_cache_key(
+            source_hash=source_hash,
+            condition=label,
+            prompt_hash=prompt_hash,
+            model_revision_hash=model_revision_hash,
+            decoding_hash=decoding_hash,
+        )
+        expected = {
+            "cache_key": key,
+            "source_hash": source_hash,
+            "condition": label,
+            "prompt_hash": prompt_hash,
+            "model_revision_hash": model_revision_hash,
+            "decoding_hash": decoding_hash,
+        }
+        payload = cache.load(key, expected)
+        if payload is None:
+            summary = summary_client.summarize(
+                system_prompt=prompt,
+                source_text=source_text,
+                decoding=decoding,
+            )
+            payload = {**expected, "summary": summary, "summary_hash": stable_hash(summary)}
+            cache.store(key, payload)
+        else:
+            reused += 1
+        summaries[str(row["representation_key"])] = payload
+    identity = load_model_identity(
+        model_root / spec.model_directory_name,
+        expected_repository=spec.model_repository,
+    )
+    encoder = LocalQwenEncoder(identity, max_seq_length=8192)
+    labels = sorted(
+        {
+            condition_label(row)
+            for row in rows
+            if not (stage == "reference" and row["split"] == "validation" and condition_label(row).startswith("C3_"))
+        }
+    )
+    embedding_reports = [
+        _embed_summaries(
+            spec=spec,
+            task=task,
+            label=label,
+            rows=rows,
+            summaries=summaries,
+            encoder=encoder,
+            identity_hash=identity.artifact_hash,
+            tokenizer_hash=identity.tokenizer_hash,
+            source_git_commit=source_git_commit,
+        )
+        for label in labels
+    ]
+    report = {
+        "status": "PASS",
+        "experiment_id": spec.experiment_id,
+        "source_git_commit": source_git_commit,
+        "stage": stage,
+        "task": task,
+        "summaries": len(rows),
+        "summary_cache_rows_reused": reused,
+        "summary_cache_key_fields": [
+            "source_hash",
+            "condition",
+            "prompt_hash",
+            "model_revision_hash",
+            "decoding_hash",
+        ],
+        "single_pass_nonrecursive": True,
+        "instruction_model": str(spec.m2["instruction_model"]),
+        "instruction_model_revision_hash": model_revision_hash,
+        "on_premise_only": True,
+        "external_api_used": False,
+        "deterministic_decoding": True,
+        "embedding_model": identity.repository,
+        "embedding_model_artifact_hash": identity.artifact_hash,
+        "embedding_reports": embedding_reports,
+        "runtime_seconds": time.perf_counter() - started,
+        "test_split_used": False,
+    }
+    text = json.dumps(report, indent=2, sort_keys=True) + "\n"
+    assert_privacy_safe_report(text)
+    report_path = spec.aggregate_root / "m2" / "tasks" / f"{task}_{stage}.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    if report_path.is_file():
+        previous = json.loads(report_path.read_text(encoding="utf-8"))
+        if previous != report:
+            raise ContractError("Refusing to overwrite a different M2 task aggregate.")
+    else:
+        report_path.write_text(text, encoding="utf-8")
+    return report
+
+
+def _feature_sets(text: str) -> dict[str, Any]:
+    concepts = [value for value in BRACKET_RE.findall(text) if not value.startswith("TIME=")]
+    numbers = NUMBER_RE.findall(text)
+    units = [value.strip() for value in UNIT_RE.findall(text)]
+    time_labels = TIME_LABEL_RE.findall(text)
+    lines = [line for line in text.splitlines() if line.startswith("-")]
+    event_concepts = [
+        value
+        for line in lines
+        for value in BRACKET_RE.findall(line)
+        if not value.startswith("TIME=")
+    ]
+    trends: set[str] = set()
+    values_by_concept: defaultdict[str, list[float]] = defaultdict(list)
+    facts_by_concept: defaultdict[str, set[tuple[str | None, str | None]]] = defaultdict(set)
+    for line in lines:
+        codes = [value for value in BRACKET_RE.findall(line) if not value.startswith("TIME=")]
+        value = VALUE_RE.search(line)
+        unit = UNIT_RE.search(line)
+        if codes:
+            facts_by_concept[codes[-1]].add(
+                (
+                    value.group(1) if value else None,
+                    unit.group(1).strip() if unit else None,
+                )
+            )
+        if codes and value:
+            values_by_concept[codes[-1]].append(float(value.group(1)))
+    for values in values_by_concept.values():
+        if len(values) >= 2:
+            if values[-1] > values[0]:
+                trends.add("increasing")
+            elif values[-1] < values[0]:
+                trends.add("decreasing")
+            else:
+                trends.add("stable")
+    return {
+        "concepts": Counter(concepts),
+        "numbers": Counter(numbers),
+        "units": Counter(units),
+        "time_labels": Counter(time_labels),
+        "recurrence": Counter({key: count for key, count in Counter(event_concepts).items() if count > 1}),
+        "trends": trends,
+        "facts_by_concept": facts_by_concept,
+    }
+
+
+def _counter_retention(source: Counter[str], summary: Counter[str]) -> tuple[int, int]:
+    denominator = sum(source.values())
+    retained = sum(min(count, summary.get(key, 0)) for key, count in source.items())
+    return retained, denominator
+
+
+def audit_summary_fidelity(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    thresholds: Mapping[str, Any],
+    histories_per_task_condition: int,
+) -> dict[str, Any]:
+    """Audit a deterministic balanced validation sample without exposing its rows."""
+    eligible = [dict(row) for row in records if row.get("split") == "validation"]
+    groups: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in eligible:
+        groups[(str(row["task"]), str(row["condition"]))].append(row)
+    if len(groups) != 8:
+        raise ContractError("M2 fidelity requires four tasks crossed with correct and shuffled time.")
+    sample: list[dict[str, Any]] = []
+    for key, group in sorted(groups.items()):
+        ranked = sorted(group, key=lambda row: stable_hash((key, row["instance_key"])))
+        if len(ranked) < histories_per_task_condition:
+            raise ContractError("M2 fidelity group is too small for its prespecified balanced sample.")
+        sample.extend(ranked[:histories_per_task_condition])
+    totals = Counter()
+    retained = Counter()
+    unsupported = 0
+    contradictions = 0
+    timing_repairs = 0
+    failures = 0
+    ratios: list[float] = []
+    for row in sample:
+        source = str(row["source_text"])
+        summary = str(row.get("summary", ""))
+        if not summary:
+            failures += 1
+            continue
+        ratios.append(len(summary) / max(1, len(source)))
+        source_features = _feature_sets(source)
+        summary_features = _feature_sets(summary)
+        for name in ("concepts", "numbers", "units", "recurrence", "time_labels"):
+            kept, total = _counter_retention(source_features[name], summary_features[name])
+            retained[name] += kept
+            totals[name] += total
+        expected_trends = source_features["trends"]
+        observed_trends = {word for word in TREND_WORDS if word in summary.casefold()}
+        retained["trends"] += len(expected_trends & observed_trends)
+        totals["trends"] += len(expected_trends)
+        unsupported += sum(
+            max(0, count - source_features["concepts"].get(key, 0))
+            for key, count in summary_features["concepts"].items()
+        )
+        unsupported += sum(
+            max(0, count - source_features["numbers"].get(key, 0))
+            for key, count in summary_features["numbers"].items()
+        )
+        contradictions += int("contradiction" in summary.casefold())
+        for concept, summary_facts in summary_features["facts_by_concept"].items():
+            source_facts = source_features["facts_by_concept"].get(concept, set())
+            if source_facts:
+                contradictions += len(summary_facts - source_facts)
+        if "C3_shuffled" in str(row["condition"]):
+            source_labels = TIME_LABEL_RE.findall(source)
+            summary_labels = TIME_LABEL_RE.findall(summary)
+            timing_repairs += int(summary_labels != source_labels)
+    rates = {
+        name: retained[name] / totals[name] if totals[name] else 1.0
+        for name in ("concepts", "numbers", "units", "recurrence", "trends", "time_labels")
+    }
+    unsupported_denominator = max(1, totals["concepts"] + totals["numbers"])
+    unsupported_rate = unsupported / unsupported_denominator
+    failure_rate = failures / len(sample)
+    passed = all(
+        (
+            rates["concepts"] >= float(thresholds["minimum_concept_retention"]),
+            rates["numbers"] >= float(thresholds["minimum_numeric_retention"]),
+            rates["units"] >= float(thresholds["minimum_unit_retention"]),
+            rates["recurrence"] >= float(thresholds["minimum_recurrence_retention"]),
+            rates["trends"] >= float(thresholds["minimum_trend_retention"]),
+            rates["time_labels"] >= float(thresholds["minimum_time_label_retention"]),
+            unsupported_rate <= float(thresholds["maximum_unsupported_fact_rate"]),
+            contradictions <= int(thresholds["maximum_contradictions"]),
+            timing_repairs <= int(thresholds["maximum_timing_repairs"]),
+            failure_rate <= float(thresholds["maximum_generation_failure_rate"]),
+        )
+    )
+    return {
+        "status": "PASS" if passed else "FAIL",
+        "validation_only": True,
+        "sample_histories": len(sample),
+        "task_condition_groups": len(groups),
+        "histories_per_task_condition": histories_per_task_condition,
+        "retention": rates,
+        "unsupported_fact_rate": unsupported_rate,
+        "contradictions": contradictions,
+        "falsified_timing_repairs": timing_repairs,
+        "compression_ratio": {
+            "mean": float(np.mean(ratios)) if ratios else None,
+            "minimum": float(np.min(ratios)) if ratios else None,
+            "maximum": float(np.max(ratios)) if ratios else None,
+        },
+        "generation_failure_rate": failure_rate,
+        "held_out_prompt_refinement": False,
+    }

@@ -109,3 +109,16 @@ Status date: 2026-09-01
   445_0 through 445_3, 446, and 451 without patient-level content. Prompt 3 is COMPLETE, M1 is
   frozen as reported, and held-out test performance remains untouched. Prompt 4 M2/M3 source is the
   active phase.
+- Prompt 4 source is implemented in `configs/experiments/final_m2_m3.yaml`,
+  `src/temporal_ehr/final_m23/`, notebooks 08-09, and Slurm jobs 24-28. M2 is a non-recursive,
+  deterministic-where-supported, on-premise-only summary path with cache identity over source hash,
+  condition, prompt, served-model revision, and decoding configuration. Its validation-only
+  fidelity sample is frozen at 40 histories, five per task crossed with correct/shuffled time. M3
+  reconstructs complete locked windows and verifies them against Prompt 3's patient-window hashes,
+  then uses frozen Qwen3-Embedding-0.6B at 512 tokens per window, at most 64 recent nonempty windows, a
+  mean-pool logistic comparator, a fixed 256-dimensional projection, a one-layer unidirectional GRU
+  with hidden size 128/dropout 0.1/AdamW, validation-only early stopping, and three frozen seeds.
+- The source implements C1 reference execution first, the exact 0.005 validation macro-AUROC
+  approach-selection rule, conditional selected-approach sensitivities, and a cryptographically
+  hashed freeze manifest. Local validation passed 118 synthetic tests, Ruff, shell syntax, context,
+  and privacy checks without running real data, summaries, embeddings, GRUs, or test evaluation.

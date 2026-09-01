@@ -40,6 +40,14 @@ handoff SHA-256 is `2bd2223b13b9395ee7a725da9c260f1560c387db6cf5177f28f35999e0c5
 The report records `FINAL_M1_VALIDATION_COMPLETE_TEST_REMAINS_LOCKED`; no M2, M3, or held-out
 evaluation was performed.
 
+Prompt 4 source is implemented for M2 one-pass summaries and M3 per-window sequences. M2 is
+hard-bound to the on-premise `10.45.177.17:8000` endpoint, uses immutable source/condition/prompt/
+model-revision/decoding cache identity, and includes the prespecified balanced 40-history fidelity
+audit. M3 uses frozen 512-token Qwen window embeddings, at most 64 recent nonempty windows, a
+mean-pool logistic comparator, and a one-layer 128-hidden-unit unidirectional GRU under seeds
+20260815-20260817. The reference graph must complete before conditional sensitivity and freeze.
+Do not run either real path locally or submit sensitivity before `approach_selection.json` passes.
+
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those
 files as historical planning records. The sole active implementation prompt is

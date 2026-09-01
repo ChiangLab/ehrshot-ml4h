@@ -39,3 +39,11 @@ keys and paths are categorically ineligible for the final namespace.
 
 Patient-level manifests contain hashes only and remain under `outputs/private/`. Aggregate review
 reports remain under `reports/generated/`. Neither location is tracked by Git.
+
+Prompt 4 M2 and M3 consume this locked serialization; they do not create a new censoring,
+windowing, deduplication, or rendering rule. M2 receives one ordered serialized representation and
+must preserve supplied compact labels exactly, including falsified C3 order. M3 reconstructs the
+complete blocks from the immutable final cohort and event source using these same functions,
+cross-checks every block against the Prompt 3 patient-window index hashes, retains chronological
+order, keeps at most the 64 most recent nonempty blocks, and applies its independent 512-token
+encoder limit per block. Neither approach may rearrange clinical event arrays or repair labels.

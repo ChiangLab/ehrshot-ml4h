@@ -131,6 +131,8 @@ export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
 export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
 export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
 export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
+export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
+export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
 ```
 
 Verify the exact governed inputs without printing rows:
@@ -695,3 +697,106 @@ rsync -avP \
 
 Do not copy cohorts, patient-window tables, prepared text, manifests, embeddings, predictions,
 executed notebooks, caches, or private status files. Disconnect VPN after the aggregate transfer.
+
+## Prompt 4 M2/M3 validation and protocol freeze
+
+Prompt 4 is a two-submission workflow so validation evidence, not job timing, controls expansion.
+The reference submission runs M2 and M3 only under complete correctly timed history (plus the
+prespecified 40-history M2 correct/shuffled fidelity sample). The sensitivity submission reads the
+immutable reference selection and runs additional temporal conditions only for the selected
+approach. M1 already has its complete C0-C3 matrix. All summaries use only
+`http://10.45.177.17:8000/v1` and model `nvidia/Qwen3.6-35B-A3B-NVFP4`; no governed text may leave
+the on-premise network.
+
+After the Prompt 4 source commit is pushed, connect to MedNet VPN, SSH to the DGX, load the GitHub
+key if needed, and run:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519_github_dgx
+git pull --ff-only origin main
+git status --short --branch
+
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+
+curl -fsS http://10.45.177.17:8000/v1/models
+bash scripts/slurm/submit_prompt4_execution.sh reference
+source outputs/private/prompt4_reference_job_ids.env
+squeue -j "${M2_ARRAY_JOB_ID},${M2_FIT_JOB_ID},${M3_ARRAY_JOB_ID},${M3_FIT_JOB_ID}" \
+  -o "%.18i %.12P %.28j %.2t %.10M %.10l %R"
+```
+
+The deterministic graph is M2 task array 24 -> M2 fit/fidelity 25, M3 task-by-seed array 26, then
+M2 fit plus M3 array -> M3 aggregation/approach selection 27. Arrays run one task at a time on the
+verified node to avoid cache races. Once the jobs are queued, SSH and VPN may be disconnected.
+After every reference job leaves `squeue`, reconnect and require all sentinels and outputs:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+source outputs/private/prompt4_reference_job_ids.env
+
+for index in 0 1 2 3; do
+  test -s "outputs/private/run_status/${M2_ARRAY_JOB_ID}_${index}/COMPLETE.json"
+  test ! -e "outputs/private/run_status/${M2_ARRAY_JOB_ID}_${index}/FAILED.json"
+done
+test -s "outputs/private/run_status/${M2_FIT_JOB_ID}/COMPLETE.json"
+test ! -e "outputs/private/run_status/${M2_FIT_JOB_ID}/FAILED.json"
+for index in $(seq 0 11); do
+  test -s "outputs/private/run_status/${M3_ARRAY_JOB_ID}_${index}/COMPLETE.json"
+  test ! -e "outputs/private/run_status/${M3_ARRAY_JOB_ID}_${index}/FAILED.json"
+done
+test -s "outputs/private/run_status/${M3_FIT_JOB_ID}/COMPLETE.json"
+test ! -e "outputs/private/run_status/${M3_FIT_JOB_ID}/FAILED.json"
+
+test -s reports/generated/final/locked_four_task_m2_m3_v1/m2_reference.json
+test -s reports/generated/final/locked_four_task_m2_m3_v1/m3_reference.json
+test -s reports/generated/final/locked_four_task_m2_m3_v1/approach_selection.json
+test -s outputs/private/executed_notebooks/08_m2_summary_validation.ipynb
+test -s outputs/private/executed_notebooks/09_m3_sequence_validation.ipynb
+
+srun --partition=batch --nodelist=dgit00038673 --cpus-per-task=2 --mem=8G --time=00:30:00 \
+  --container-image=/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh \
+  --container-mounts=/data:/data --container-workdir="$PWD" --export=ALL \
+  env PYTHONPATH=src .venv/bin/python scripts/review_final_m23_results.py
+```
+
+Only after that validator passes, submit the selected sensitivity and freeze stage:
+
+```bash
+bash scripts/slurm/submit_prompt4_execution.sh sensitivity
+source outputs/private/prompt4_sensitivity_job_ids.env
+PROMPT4_JOBS="${FREEZE_JOB_ID}"
+[[ -n "${SENSITIVITY_FIT_JOB_ID}" ]] && PROMPT4_JOBS="${SENSITIVITY_FIT_JOB_ID},${PROMPT4_JOBS}"
+[[ -n "${SENSITIVITY_ARRAY_JOB_ID}" ]] && PROMPT4_JOBS="${SENSITIVITY_ARRAY_JOB_ID},${PROMPT4_JOBS}"
+squeue -j "${PROMPT4_JOBS}" \
+  -o "%.18i %.12P %.28j %.2t %.10M %.10l %R"
+```
+
+If M1 is selected, the two sensitivity IDs are intentionally empty because its full matrix is
+already complete; only job 28 is submitted. If M2 or M3 is selected, the matching conditional array
+and aggregate job must complete before job 28 can run. An empty queue is not evidence of success.
+After the graph leaves `squeue`, verify:
+
+```bash
+source outputs/private/prompt4_sensitivity_job_ids.env
+test -s "outputs/private/run_status/${FREEZE_JOB_ID}/COMPLETE.json"
+test ! -e "outputs/private/run_status/${FREEZE_JOB_ID}/FAILED.json"
+test -s reports/generated/final/locked_four_task_m2_m3_v1/FROZEN_EXPERIMENT_MANIFEST.json
+test -s reports/generated/handoff/prompt4_handoff.json
+
+srun --partition=batch --nodelist=dgit00038673 --cpus-per-task=2 --mem=8G --time=00:30:00 \
+  --container-image=/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh \
+  --container-mounts=/data:/data --container-workdir="$PWD" --export=ALL \
+  env PYTHONPATH=src .venv/bin/python scripts/review_final_m23_results.py --require-frozen
+```
+
+Pass gates are: all submitted jobs have COMPLETE/exit 0 and no FAILED sentinel; the M2 fidelity
+audit covers at least 40 validation histories across eight task/condition strata; M3 covers all
+four tasks, its mean-pool comparator, and all three seeds; selection follows the 0.005 macro-AUROC
+rule; the selected approach's sensitivity exists (or M1's existing full matrix is cited); the
+frozen manifest hash validates; and every report states no held-out use. Copy back only
+`m2_reference.json`, `m3_reference.json`, `approach_selection.json`, the selected sensitivity JSON
+if one exists, `FROZEN_EXPERIMENT_MANIFEST.json`, and `reports/generated/handoff/prompt4_handoff.json`.
+Never copy summaries, sequence rows, private predictions, embeddings, model weights, or sentinels.

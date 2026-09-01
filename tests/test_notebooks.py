@@ -61,6 +61,18 @@ NOTEBOOKS = {
         "## Runtime-only 8B feasibility and operational evidence",
         "## Boundary",
     ],
+    "08_m2_summary_validation.ipynb": [
+        "# 08 — M2 single-pass summary validation",
+        "## Locked on-premise scope and immutable cache identity",
+        "## Validation-only fidelity audit",
+        "## Validation metrics and held-out boundary",
+    ],
+    "09_m3_sequence_validation.ipynb": [
+        "# 09 — M3 sequence validation and approach selection",
+        "## Frozen architecture, capacity baseline, and seeds",
+        "## Prespecified validation-only approach selection",
+        "## Held-out boundary",
+    ],
 }
 
 

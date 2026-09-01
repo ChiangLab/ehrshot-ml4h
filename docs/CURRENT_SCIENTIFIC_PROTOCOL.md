@@ -17,7 +17,8 @@ Status date: 2026-09-01. This is a concise operational index; the final August 1
 - Prompt 3's versioned `locked_four_task_m1_v1` foundation, runtime-only feasibility gate, four
   task-level embedding caches, final validation readout, and aggregate notebook are complete.
   Fit-only recovery job 451 validated exact upstream provenance while preserving failed job 446.
-  Prompt 4 M2/M3 implementation is active; held-out evaluation remains locked.
+  Prompt 4 M2/M3 source and local synthetic validation are complete; governed reference execution
+  is the next gate. Held-out evaluation remains locked.
 
 ## Time, windows, and evidence identity
 

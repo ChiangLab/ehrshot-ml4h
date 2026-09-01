@@ -1,0 +1,135 @@
+version: 1
+experiment_id: locked_four_task_m2_m3_v1
+mode: FINAL_VALIDATION
+status: LOCKED
+authorized_on: 2026-09-01
+panel_config: configs/experiments/locked_panel.yaml
+tasks:
+  - lab_anemia
+  - guo_readmission
+  - new_hypertension
+  - chexpert
+splits:
+  - train
+  - validation
+
+upstream_m1:
+  config: configs/experiments/final_four_task_m1.yaml
+  report: reports/generated/final/locked_four_task_m1_v1/final_m1_validation.json
+  report_sha256: 6d16d6b2494042fd2c84d25ef790f030355738cf8512fb87cf5477f73a3e0c7a
+  handoff: reports/generated/handoff/prompt3_handoff.json
+  handoff_sha256: 2bd2223b13b9395ee7a725da9c260f1560c387db6cf5177f28f35999e0c56814
+  fit_recovery_job_id: 451
+  fit_recovery_commit: ef1b0debfa963ee365645ec2f754d8d129e071ce
+  protocol_decision: FINAL_M1_VALIDATION_COMPLETE_TEST_REMAINS_LOCKED
+
+private_root: outputs/private/final/locked_four_task_m2_m3_v1
+aggregate_root: reports/generated/final/locked_four_task_m2_m3_v1
+
+embedding_model:
+  repository: Qwen/Qwen3-Embedding-0.6B
+  directory_name: Qwen3-Embedding-0.6B
+  frozen: true
+  normalize_embeddings_float32: true
+  full_dimension: true
+  batch_size: 4
+
+m2:
+  approach: single_pass_summary_embedding
+  recursive: false
+  instruction_model: nvidia/Qwen3.6-35B-A3B-NVFP4
+  api_base: http://10.45.177.17:8000/v1
+  endpoint: /chat/completions
+  on_premise_only: true
+  prompt_version: m2_fidelity_v1
+  prompt: >-
+    Summarize this ordered strictly pre-prediction record once. Preserve every supplied diagnosis,
+    procedure, medication, measurement, numeric value, unit, recurrence, direction of change, and
+    bracketed time label that is material to the record. Keep falsified time labels exactly as
+    supplied; do not correct or reinterpret them. Do not infer a diagnosis, causal relationship,
+    future event, outcome, or missing fact. Use only facts in the input. Keep each supplied
+    bracketed code, numeric value, and unit verbatim in a bulleted fact; explicitly state repeated
+    occurrences and increasing, decreasing, or stable numeric trends when directly supported.
+  decoding:
+    temperature: 0.0
+    top_p: 1.0
+    seed: 20260815
+    max_output_tokens: 2048
+  reference_condition: C1_correct_compact_time
+  fidelity_condition: C3_shuffled_earlier_time_labels
+  fidelity_seed: 20260815
+  sensitivity_conditions:
+    - C0_order_only
+    - C2_reversed_earlier_gaps
+    - C3_shuffled_earlier_time_labels:seed=20260815
+    - C3_shuffled_earlier_time_labels:seed=20260816
+    - C3_shuffled_earlier_time_labels:seed=20260817
+  fidelity:
+    validation_histories: 40
+    histories_per_task_condition: 5
+    minimum_concept_retention: 0.90
+    minimum_numeric_retention: 0.95
+    minimum_unit_retention: 0.95
+    minimum_recurrence_retention: 0.80
+    minimum_trend_retention: 0.80
+    minimum_time_label_retention: 0.95
+    maximum_unsupported_fact_rate: 0.01
+    maximum_contradictions: 0
+    maximum_timing_repairs: 0
+    maximum_generation_failure_rate: 0.0
+
+m3:
+  approach: per_window_embedding_gru
+  reference_condition: C1_correct_compact_time
+  sensitivity_conditions:
+    - C0_order_only
+    - C2_reversed_earlier_gaps
+    - C3_shuffled_earlier_time_labels:seed=20260815
+    - C3_shuffled_earlier_time_labels:seed=20260816
+    - C3_shuffled_earlier_time_labels:seed=20260817
+  max_tokens_per_window: 512
+  max_recent_nonempty_windows: 64
+  mean_pool_logistic_baseline: true
+  projection_dimension: 256
+  projection_seed: 20260819
+  hidden_size: 128
+  input_dropout: 0.1
+  optimizer: AdamW
+  learning_rate: 0.001
+  weight_decay: 0.01
+  batch_size: 32
+  maximum_epochs: 50
+  early_stopping_patience: 5
+  early_stopping_metric: validation_log_loss
+  training_seeds:
+    - 20260815
+    - 20260816
+    - 20260817
+
+evaluation:
+  regularization_grid:
+    - 0.01
+    - 0.1
+    - 1.0
+    - 10.0
+  logistic_seed: 20260815
+  bootstrap_seed: 20260818
+  bootstrap_replicates: 2000
+  approach_selection:
+    primary_metric: equal_weight_validation_macro_auroc
+    minimum_margin: 0.005
+    no_margin_priority:
+      - M1
+      - M2
+      - M3
+    second_tiebreaker: validation_log_loss
+
+prohibitions:
+  test_split: true
+  test_predictions_or_performance: true
+  external_summary_api: true
+  recursive_summarization: true
+  prompt_refinement_on_held_out_data: true
+  m1_artifact_mutation: true
+  serializer_mutation: true
+  cohort_mutation: true

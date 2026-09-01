@@ -21,6 +21,12 @@ AGGREGATE_REPORTS = (
     Path("reports/generated/final/locked_four_task_m1_v1/foundation.json"),
     Path("reports/generated/final/locked_four_task_m1_v1/throughput.json"),
     Path("reports/generated/final/locked_four_task_m1_v1/final_m1_validation.json"),
+    Path("reports/generated/final/locked_four_task_m2_m3_v1/m2_reference.json"),
+    Path("reports/generated/final/locked_four_task_m2_m3_v1/m2_sensitivity.json"),
+    Path("reports/generated/final/locked_four_task_m2_m3_v1/m3_reference.json"),
+    Path("reports/generated/final/locked_four_task_m2_m3_v1/m3_sensitivity.json"),
+    Path("reports/generated/final/locked_four_task_m2_m3_v1/approach_selection.json"),
+    Path("reports/generated/final/locked_four_task_m2_m3_v1/FROZEN_EXPERIMENT_MANIFEST.json"),
 )
 HASHED_PROTOCOL_FILES = (
     Path("configs/tasks.yaml"),
@@ -29,6 +35,7 @@ HASHED_PROTOCOL_FILES = (
     Path("configs/experiments/locked_panel.yaml"),
     Path("configs/experiments/complete_three_task_pilot.yaml"),
     Path("configs/experiments/final_four_task_m1.yaml"),
+    Path("configs/experiments/final_m2_m3.yaml"),
     Path("docs/CURRENT_SCIENTIFIC_PROTOCOL.md"),
     Path("docs/PROTOCOL_DEVIATIONS.md"),
 )
@@ -286,6 +293,15 @@ def _job_summary(root: Path, job_id: str) -> dict[str, Any]:
             "final_throughput",
             "final_m1_embed_task",
             "final_m1_fit_validation",
+            "final_m2_summary_reference",
+            "final_m2_summary_sensitivity",
+            "final_m2_fit_reference",
+            "final_m2_fit_sensitivity",
+            "final_m3_task_seed_reference",
+            "final_m3_task_seed_sensitivity",
+            "final_m3_fit_reference",
+            "final_m3_fit_sensitivity",
+            "final_prompt4_freeze",
         }:
             run_kind = "UNKNOWN"
         safe_payload: dict[str, Any] = {"state": state, "run_kind": run_kind}
