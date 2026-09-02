@@ -57,6 +57,10 @@ An obsolete Prompt 4 graph was submitted on the DGX from pre-alignment commit `a
 456, M2 fit 458, M3 array 459, and M3 fit 460. Task 456_0 failed and the remaining graph must be
 canceled and preserved, never treated as final evidence. Immutable per-row summary records may be
 reused by their scientific cache key, but new embedding caches are isolated by full source commit.
+The first split-M3 submission at aligned commit `bd4ae35` also produced no scientific work:
+preparation array 465 failed before container startup because script 26a omitted `CONTAINER_IMAGE`,
+and seed array 469 was dependency-blocked. Preserve those failures and use the tested wrapper hotfix
+before submitting replacement M3 preparation/training IDs.
 Do not run either real path locally or submit sensitivity before these gates pass.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in

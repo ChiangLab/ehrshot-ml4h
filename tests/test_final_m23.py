@@ -399,6 +399,13 @@ def test_prompt4_batch_scripts_use_atomic_sentinels_and_no_test_commands() -> No
     assert "TEMPORAL_EHR_MODEL_ROOT" not in m3_train
 
 
+def test_prompt4_common_wrapper_jobs_define_the_container_image() -> None:
+    for path in Path("scripts/slurm").glob("*.sbatch"):
+        source = path.read_text(encoding="utf-8")
+        if 'source "${PROJECT_ROOT}/scripts/slurm/final_job_common.sh"' in source:
+            assert "CONTAINER_IMAGE=" in source, f"{path.name} omits CONTAINER_IMAGE"
+
+
 def test_prompt4_submission_splits_m3_preparation_from_parallel_seed_training() -> None:
     submit = Path("scripts/slurm/submit_prompt4_execution.sh").read_text(encoding="utf-8")
     assert "M3_PREP_ARRAY_JOB_ID" in submit

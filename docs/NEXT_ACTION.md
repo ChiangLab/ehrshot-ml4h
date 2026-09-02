@@ -10,6 +10,9 @@ First cancel and preserve the superseded commit-`a28eab1` Prompt 4 graph (456, 4
 456_0 already failed and no output from that graph may satisfy final gates. Do not delete its
 summaries, embeddings, logs, or sentinels. The aligned source safely reuses only immutable summary
 rows and writes source-commit-isolated embeddings.
+Preserve failed preparation array 465 and dependency-blocked seed array 469. Commit/pull the
+`CONTAINER_IMAGE` hotfix, cancel 469, and submit new M3 preparation/training IDs; none of 465/469
+may satisfy Prompt 4 gates.
 
 After local revalidation and review/commit of the Prompt 4 alignment update, pull it into a clean
 DGX checkout, verify

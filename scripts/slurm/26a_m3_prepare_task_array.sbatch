@@ -16,6 +16,7 @@ MODEL_ROOT="${TEMPORAL_EHR_MODEL_ROOT:?Set TEMPORAL_EHR_MODEL_ROOT before submis
 EVENT_PATH="${EHRSHOT_DATA_PATH:?Set EHRSHOT_DATA_PATH before submission}"
 ASSET_ROOT="${EHRSHOT_ASSET_ROOT:?Set EHRSHOT_ASSET_ROOT before submission}"
 M23_STAGE="${M23_STAGE:-reference}"
+CONTAINER_IMAGE="/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh"
 PYTHON="${PROJECT_ROOT}/.venv/bin/python"
 CONFIG="${PROJECT_ROOT}/configs/experiments/final_m2_m3.yaml"
 ARRAY_INDEX="${SLURM_ARRAY_TASK_ID:?Array task ID required}"

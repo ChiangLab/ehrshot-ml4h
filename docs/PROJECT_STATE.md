@@ -146,3 +146,8 @@ Status date: 2026-09-01
   resources. This graph is superseded and must be canceled/preserved. New M2 embedding paths include
   the full source commit, while valid summary rows remain reusable only through their immutable
   source/condition/prompt/model/decoding key.
+- After aligned commit `bd4ae35` passed its in-container hard gate, M3 preparation tasks 465_0
+  through 465_3 failed before scientific Python because `26a_m3_prepare_task_array.sbatch` did not
+  define the `CONTAINER_IMAGE` variable required by `final_job_common.sh`; dependent seed array 469
+  became `DependencyNeverSatisfied`. No source reconstruction, embedding, fitting, or result ran.
+  The pending hotfix defines the image and tests every common-wrapper Slurm script for that contract.
