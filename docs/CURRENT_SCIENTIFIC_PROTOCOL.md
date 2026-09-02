@@ -61,11 +61,21 @@ Status date: 2026-09-01. This is a concise operational index; the final August 1
 - M2: one authorized local, non-recursive longitudinal summary, frozen embedding, then logistic
   regression. It is RAPTOR-inspired compression, not a RAPTOR hierarchy. Summary generation must
   be deterministic where supported, preserve supplied falsified time labels rather than repair
-  them, and remain entirely on the authorized on-premise endpoint.
+  them, and remain entirely on the authorized on-premise endpoint. Its primary source is the same
+  content-matched 8,192-token retained history as M1. Eligibility requires both automated fidelity
+  checks and manual review of the frozen 40-history validation sample.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus
   logistic regression is the required capacity comparator. The locked architecture uses at most 64
   recent nonempty windows, 512 tokens per window, hidden size 128, dropout 0.1, AdamW, and three
-  frozen seeds.
+  frozen seeds. Early stopping maximizes validation AUROC, with validation log loss only resolving
+  an AUROC tie.
+- M3's immutable source and embedding caches are prepared once per task/stage before seed training.
+  Projection is applied to retained windows before right-padding, which is mathematically
+  equivalent to projecting the zero-padded tensor while avoiding unnecessary padded 1,024-D
+  storage. These are execution-only optimizations; the three seeds and every condition remain.
+- Whichever approach is selected must have complete-correct versus latest-window and
+  complete-correct versus all three fixed C3 seeds available before the held-out run. C0 and C2 are
+  secondary temporal sensitivities; M1 retains the complete temporal matrix regardless of selection.
 - Development and selection use training/validation only. The held-out test split is prohibited
   until panel, serializers, prompts, hyperparameters, models, seeds, statistics, and an immutable
   experiment manifest are frozen. Test results may be evaluated once and may not change design.

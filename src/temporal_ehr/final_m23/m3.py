@@ -32,7 +32,11 @@ from temporal_ehr.serialization.blocks import (
     event_from_mapping,
     exact_duplicate_key,
 )
-from temporal_ehr.serialization.conditions import build_full_history_conditions
+from temporal_ehr.serialization.conditions import (
+    LabeledBlock,
+    TemporalCondition,
+    build_full_history_conditions,
+)
 from temporal_ehr.serialization.integrity import stable_hash
 from temporal_ehr.serialization.render import load_code_descriptions, render_labeled_block
 
@@ -101,6 +105,48 @@ def fixed_projection(vectors: np.ndarray, *, output_dimension: int, seed: int) -
     return np.asarray(projected, dtype=np.float32)
 
 
+def project_then_pad_sequences(
+    sequences: Sequence[np.ndarray],
+    *,
+    maximum_windows: int,
+    output_dimension: int,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Project retained windows before padding to avoid a dense 4096-D padded tensor."""
+    if not sequences:
+        raise ValueError("M3 projection requires at least one sequence.")
+    retained = [np.asarray(sequence, dtype=np.float32)[-maximum_windows:] for sequence in sequences]
+    if any(array.ndim != 2 or len(array) < 1 for array in retained):
+        raise ContractError("M3 projection received an invalid sequence.")
+    dimension = int(retained[0].shape[1])
+    if any(array.shape[1] != dimension for array in retained):
+        raise ContractError("M3 projection received inconsistent embedding dimensions.")
+    lengths = [len(array) for array in retained]
+    projected = fixed_projection(
+        np.concatenate(retained, axis=0),
+        output_dimension=output_dimension,
+        seed=seed,
+    )
+    split_at = np.cumsum(lengths[:-1], dtype=np.int64)
+    projected_sequences = np.split(projected, split_at)
+    return pad_sequences(projected_sequences, maximum_windows=maximum_windows)
+
+
+def validation_auroc_improved(
+    *,
+    current_auroc: float,
+    best_auroc: float,
+    current_log_loss: float,
+    best_log_loss: float,
+    tolerance: float = 1e-7,
+) -> bool:
+    """Maximize validation AUROC; use lower log loss only for an AUROC tie."""
+    return current_auroc > best_auroc + tolerance or (
+        abs(current_auroc - best_auroc) <= tolerance
+        and current_log_loss < best_log_loss - tolerance
+    )
+
+
 def m3_stage_labels(spec: FinalM23Authorization, stage: str) -> tuple[str, ...]:
     if stage == "reference":
         return (str(spec.m3["reference_condition"]),)
@@ -116,6 +162,13 @@ def m3_stage_labels(spec: FinalM23Authorization, stage: str) -> tuple[str, ...]:
 
 
 def _condition_for_label(windows: Sequence[Any], label: str, instance_key: str) -> Any:
+    if label == "B1_latest_window_only":
+        latest = tuple(windows[-1:])
+        return TemporalCondition(
+            name=label,
+            blocks=tuple(LabeledBlock(window, window.window_index) for window in latest),
+            eligible=True,
+        )
     if ":seed=" in label:
         representation, seed_text = label.split(":seed=", 1)
         seed = int(seed_text)
@@ -221,21 +274,22 @@ def _load_or_build_window_sources_many(
             instance.prediction_time,
             window_days=window_days_for_task(task, registry),
         )
-        actual_hashes = [
-            stable_hash(tuple(exact_duplicate_key(event) for event in window.events))
-            for window in windows
-        ]
         for label in missing:
             condition = _condition_for_label(windows, label, instance.instance_key)
             if not condition.eligible:
                 continue
+            condition_windows = [item.block for item in condition.blocks]
+            actual_hashes = [
+                stable_hash(tuple(exact_duplicate_key(event) for event in window.events))
+                for window in condition_windows
+            ]
             expected = sorted(
                 expected_by_label_instance.get((label, instance.instance_key), []),
                 key=lambda row: int(row["source_window_index"]),
                 reverse=True,
             )
             if [int(row["source_window_index"]) for row in expected] != [
-                window.window_index for window in windows
+                window.window_index for window in condition_windows
             ] or [str(row["deduplicated_clinical_content_hash"]) for row in expected] != actual_hashes:
                 raise ContractError("M3 reconstructed windows drifted from the Prompt 3 patient-window index.")
             rendered = ["\n".join(render_labeled_block(block, descriptions)) for block in condition.blocks]
@@ -362,7 +416,7 @@ def _sequence_cache(
     pending = cache.pending_indices()
     if not cache.complete_path.is_file():
         cache.begin_attempt()
-        batch_size = spec.model_batch_size
+        batch_size = int(spec.m3["embedding_batch_size"])
         for offset in range(0, len(pending), batch_size):
             indices = pending[offset : offset + batch_size]
             cache.write_rows(
@@ -439,26 +493,23 @@ def _train_gru(
     if len(np.unique(train_targets)) != 2 or len(np.unique(validation_targets)) != 2:
         raise ContractError("M3 GRU requires both classes in train and validation.")
     maximum = int(config["max_recent_nonempty_windows"])
-    train_x, train_lengths, train_mask = pad_sequences(train_sequences, maximum_windows=maximum)
-    validation_x, validation_lengths, validation_mask = pad_sequences(
+    projection_dimension = int(config["projection_dimension"])
+    train_x, train_lengths, train_mask = project_then_pad_sequences(
+        train_sequences,
+        maximum_windows=maximum,
+        output_dimension=projection_dimension,
+        seed=int(config["projection_seed"]),
+    )
+    validation_x, validation_lengths, validation_mask = project_then_pad_sequences(
         validation_sequences,
         maximum_windows=maximum,
+        output_dimension=projection_dimension,
+        seed=int(config["projection_seed"]),
     )
     if not np.array_equal(train_mask.sum(axis=1), train_lengths) or not np.array_equal(
         validation_mask.sum(axis=1), validation_lengths
     ):
         raise ContractError("M3 sequence padding mask does not match lengths.")
-    projection_dimension = int(config["projection_dimension"])
-    train_x = fixed_projection(
-        train_x,
-        output_dimension=projection_dimension,
-        seed=int(config["projection_seed"]),
-    )
-    validation_x = fixed_projection(
-        validation_x,
-        output_dimension=projection_dimension,
-        seed=int(config["projection_seed"]),
-    )
     random.seed(seed)
     np.random.seed(seed % (2**32 - 1))
     torch.manual_seed(seed)
@@ -514,6 +565,7 @@ def _train_gru(
     validation_values = torch.from_numpy(validation_x).to(device)
     validation_length_tensor = torch.from_numpy(validation_lengths).to(device)
     validation_target_tensor = torch.from_numpy(np.asarray(validation_targets, dtype=np.float32)).to(device)
+    best_auroc = -math.inf
     best_loss = math.inf
     best_state: dict[str, Any] | None = None
     best_epoch = -1
@@ -531,8 +583,17 @@ def _train_gru(
         with torch.no_grad():
             validation_logits = model(validation_values, validation_length_tensor)
             validation_loss = float(criterion(validation_logits, validation_target_tensor).item())
+            validation_probability = torch.sigmoid(validation_logits).cpu().numpy()
+            validation_auroc = float(metric_set(validation_targets, validation_probability)["auroc"])
         epochs_run = epoch + 1
-        if validation_loss < best_loss - 1e-7:
+        improved = validation_auroc_improved(
+            current_auroc=validation_auroc,
+            best_auroc=best_auroc,
+            current_log_loss=validation_loss,
+            best_log_loss=best_loss,
+        )
+        if improved:
+            best_auroc = validation_auroc
             best_loss = validation_loss
             best_epoch = epoch
             best_state = copy.deepcopy(model.state_dict())
@@ -556,10 +617,11 @@ def _train_gru(
         "input_dropout": float(config["input_dropout"]),
         "optimizer": "AdamW",
         "validation_only_early_stopping": True,
-        "early_stopping_metric": str(config["early_stopping_metric"]),
+        "early_stopping_metric": "validation_auroc",
         "epochs_run": epochs_run,
         "best_epoch_zero_based": best_epoch,
-        "best_validation_log_loss_training_objective": best_loss,
+        "best_validation_auroc": best_auroc,
+        "validation_log_loss_at_best_auroc": best_loss,
         "metrics": metric_set(validation_targets, probability),
         "calibration": calibration_summary(validation_targets, probability),
         "device": str(device),
@@ -642,7 +704,7 @@ def _fit_one_condition(
     return final_report
 
 
-def run_m3_task_seed(
+def prepare_m3_task(
     *,
     repository_root: Path,
     config_path: Path,
@@ -650,14 +712,13 @@ def run_m3_task_seed(
     event_path: Path,
     asset_root: Path,
     task: str,
-    seed: int,
     stage: str,
     source_git_commit: str,
 ) -> dict[str, Any]:
-    """Encode locked windows once and train one deterministic seed for each stage condition."""
+    """Build immutable task/condition window caches once, independently of training seed."""
     spec = load_final_m23_authorization(config_path, repository_root=repository_root)
-    if task not in spec.tasks or seed not in tuple(spec.m3["training_seeds"]):
-        raise ContractError("M3 task or seed is outside the locked mapping.")
+    if task not in spec.tasks:
+        raise ContractError("M3 task is outside the locked mapping.")
     m1 = load_final_m1_authorization(spec.m1_config_path, repository_root=repository_root)
     labels = m3_stage_labels(spec, stage)
     identity = load_model_identity(
@@ -665,7 +726,6 @@ def run_m3_task_seed(
         expected_repository=spec.model_repository,
     )
     cache_reports = []
-    fit_reports: dict[str, Any] = {}
     started = time.perf_counter()
     sources = _load_or_build_window_sources_many(
         repository_root=repository_root,
@@ -694,7 +754,66 @@ def run_m3_task_seed(
                 source_git_commit=source_git_commit,
             )
         )
-        fit_reports[label] = _fit_one_condition(spec=spec, task=task, label=label, seed=seed)
+    report = {
+        "status": "PASS",
+        "experiment_id": spec.experiment_id,
+        "source_git_commit": source_git_commit,
+        "stage": stage,
+        "task": task,
+        "embedding_model": identity.repository,
+        "embedding_model_artifact_hash": identity.artifact_hash,
+        "frozen_window_encoder": True,
+        "window_cache_reports": cache_reports,
+        "runtime_seconds": time.perf_counter() - started,
+        "patient_alignment_passed": True,
+        "test_split_used": False,
+    }
+    text = json.dumps(report, indent=2, sort_keys=True) + "\n"
+    assert_privacy_safe_report(text)
+    report_path = spec.aggregate_root / "m3" / "tasks" / f"{task}_{stage}_prepare.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    if report_path.is_file():
+        if json.loads(report_path.read_text(encoding="utf-8")) != report:
+            raise ContractError("Refusing to overwrite a different M3 task/seed aggregate.")
+    else:
+        report_path.write_text(text, encoding="utf-8")
+    return report
+
+
+def run_m3_task_seed(
+    *,
+    repository_root: Path,
+    config_path: Path,
+    task: str,
+    seed: int,
+    stage: str,
+    source_git_commit: str,
+) -> dict[str, Any]:
+    """Train one deterministic seed from immutable seed-independent window caches."""
+    spec = load_final_m23_authorization(config_path, repository_root=repository_root)
+    if task not in spec.tasks or seed not in tuple(spec.m3["training_seeds"]):
+        raise ContractError("M3 task or seed is outside the locked mapping.")
+    labels = m3_stage_labels(spec, stage)
+    prepare_path = spec.aggregate_root / "m3" / "tasks" / f"{task}_{stage}_prepare.json"
+    if not prepare_path.is_file():
+        raise ContractError("M3 seed training requires the completed task preparation report.")
+    preparation = json.loads(prepare_path.read_text(encoding="utf-8"))
+    if (
+        preparation.get("status") != "PASS"
+        or preparation.get("source_git_commit") != source_git_commit
+        or preparation.get("stage") != stage
+        or preparation.get("task") != task
+        or preparation.get("patient_alignment_passed") is not True
+        or preparation.get("test_split_used") is not False
+        or {row.get("condition") for row in preparation.get("window_cache_reports", [])}
+        != set(labels)
+    ):
+        raise ContractError("M3 task preparation provenance or condition coverage drifted.")
+    started = time.perf_counter()
+    fit_reports = {
+        label: _fit_one_condition(spec=spec, task=task, label=label, seed=seed)
+        for label in labels
+    }
     report = {
         "status": "PASS",
         "experiment_id": spec.experiment_id,
@@ -702,10 +821,12 @@ def run_m3_task_seed(
         "stage": stage,
         "task": task,
         "seed": seed,
-        "embedding_model": identity.repository,
-        "embedding_model_artifact_hash": identity.artifact_hash,
+        "embedding_model": preparation["embedding_model"],
+        "embedding_model_artifact_hash": preparation["embedding_model_artifact_hash"],
         "frozen_window_encoder": True,
-        "window_cache_reports": cache_reports,
+        "seed_independent_cache_prepared_once": True,
+        "preparation_report_sha256": file_sha256(prepare_path),
+        "window_cache_reports": preparation["window_cache_reports"],
         "fits": fit_reports,
         "runtime_seconds": time.perf_counter() - started,
         "patient_alignment_passed": True,

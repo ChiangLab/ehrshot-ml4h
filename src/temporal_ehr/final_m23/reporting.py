@@ -20,6 +20,7 @@ from temporal_ehr.final_m23.m2 import (
     SummaryCache,
     _write_parquet_once,
     audit_summary_fidelity,
+    m2_embedding_root,
     m2_source_text,
     m2_stage_rows,
 )
@@ -59,8 +60,14 @@ def _load_m2_condition(
     *,
     task: str,
     label: str,
+    source_git_commit: str,
 ) -> tuple[list[dict[str, Any]], np.ndarray]:
-    root = spec.private_root / "m2" / "embeddings" / task / condition_slug(label)
+    root = m2_embedding_root(
+        spec,
+        task=task,
+        label=label,
+        source_git_commit=source_git_commit,
+    )
     metadata_path = root / "patient_metadata.parquet"
     complete_path = root / "COMPLETE.json"
     vectors_path = root / "embeddings.npy"
@@ -93,6 +100,10 @@ def _m2_fidelity_records(
     for task in spec.tasks:
         prepared = m2_stage_rows(read_final_task_texts(m1, task), spec=spec, stage="reference")
         task_report_path = spec.aggregate_root / "m2" / "tasks" / f"{task}_reference.json"
+        if not task_report_path.is_file():
+            task_report_path = (
+                spec.aggregate_root / "m2" / "tasks" / f"{task}_reference_summaries.json"
+            )
         task_report = json.loads(task_report_path.read_text(encoding="utf-8"))
         revision_hash = str(task_report["instruction_model_revision_hash"])
         cache = SummaryCache(spec.private_root / "m2" / "summaries" / task)
@@ -146,7 +157,12 @@ def fit_m2_validation(
     started = time.perf_counter()
     for task_index, task in enumerate(spec.tasks):
         condition_data = {
-            label: _load_m2_condition(spec, task=task, label=label)
+            label: _load_m2_condition(
+                spec,
+                task=task,
+                label=label,
+                source_git_commit=source_git_commit,
+            )
             for label in fit_labels
         }
         fit_report, predictions = fit_condition_scope(
@@ -213,8 +229,27 @@ def fit_m2_validation(
             thresholds=spec.m2["fidelity"],
             histories_per_task_condition=int(spec.m2["fidelity"]["histories_per_task_condition"]),
         )
+        manual_path = spec.aggregate_root / "m2_manual_fidelity_review.json"
+        if not manual_path.is_file():
+            raise ContractError(
+                "M2 reference fit requires the completed private 40-history manual fidelity review."
+            )
+        manual = json.loads(manual_path.read_text(encoding="utf-8"))
+        if any(
+            (
+                manual.get("manual_review_completed") is not True,
+                manual.get("validation_only") is not True,
+                manual.get("sample_histories") != 40,
+                manual.get("task_condition_groups") != 8,
+                manual.get("held_out_prompt_refinement") is not False,
+            )
+        ):
+            raise ContractError("The M2 manual fidelity aggregate is incomplete or drifted.")
         report["fidelity_validation"] = fidelity
-        report["eligible_for_approach_selection"] = fidelity["status"] == "PASS"
+        report["manual_fidelity_review"] = manual
+        report["eligible_for_approach_selection"] = (
+            fidelity["status"] == "PASS" and manual.get("status") == "PASS"
+        )
     else:
         report["selection_authorization_sha256"] = file_sha256(spec.aggregate_root / "approach_selection.json")
     _write_aggregate_once(spec.aggregate_root / f"m2_{stage}.json", report)
@@ -357,6 +392,27 @@ def aggregate_m3_validation(
     for task_index, task in enumerate(spec.tasks):
         conditions: dict[str, Any] = {}
         averaged_by_label: dict[str, list[dict[str, Any]]] = {}
+        preparation_hashes = set()
+        for seed in seeds:
+            task_seed_path = (
+                spec.aggregate_root / "m3" / "tasks" / f"{task}_seed_{seed}_{stage}.json"
+            )
+            if not task_seed_path.is_file():
+                raise ContractError("M3 aggregate requires every task/seed execution report.")
+            task_seed_report = json.loads(task_seed_path.read_text(encoding="utf-8"))
+            if (
+                task_seed_report.get("status") != "PASS"
+                or task_seed_report.get("source_git_commit") != source_git_commit
+                or task_seed_report.get("task") != task
+                or task_seed_report.get("seed") != seed
+                or task_seed_report.get("stage") != stage
+                or task_seed_report.get("seed_independent_cache_prepared_once") is not True
+                or task_seed_report.get("test_split_used") is not False
+            ):
+                raise ContractError("M3 task/seed execution provenance drifted.")
+            preparation_hashes.add(task_seed_report.get("preparation_report_sha256"))
+        if len(preparation_hashes) != 1 or None in preparation_hashes:
+            raise ContractError("M3 seeds did not share one immutable task preparation report.")
         for label in report_labels:
             rows_by_seed = {
                 seed: _load_m3_seed_predictions(spec, task=task, label=label, seed=seed)
@@ -383,7 +439,10 @@ def aggregate_m3_validation(
                 ),
                 "three_seed_probability_average": True,
             }
-        task_reports[task] = {"conditions": conditions}
+        task_reports[task] = {
+            "conditions": conditions,
+            "seed_independent_preparation_report_sha256": preparation_hashes.pop(),
+        }
         if stage == "reference":
             task_reports[task]["mean_pool_logistic_baseline"] = _mean_pool_baseline(
                 spec,
@@ -535,9 +594,10 @@ def freeze_prompt4_manifest(
         "selected_approach": selected,
         "authorized_one_time_test_approach": selected,
         "authorized_one_time_test_contrasts": [
+            "C1_correct_compact_time minus B1_latest_window_only",
+            "C1_correct_compact_time minus each of three fixed C3 shuffled-label seeds",
             "C1_correct_compact_time minus C0_order_only",
             "C1_correct_compact_time minus C2_reversed_earlier_gaps",
-            "C1_correct_compact_time minus each of three fixed C3 shuffled-label seeds",
         ],
         "tasks": list(spec.tasks),
         "splits_used_for_development": ["train", "validation"],

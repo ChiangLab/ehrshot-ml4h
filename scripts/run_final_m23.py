@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 from temporal_ehr.final_m23.m2 import OnPremiseSummaryClient, run_m2_task
-from temporal_ehr.final_m23.m3 import run_m3_task_seed
+from temporal_ehr.final_m23.m3 import prepare_m3_task, run_m3_task_seed
 from temporal_ehr.final_m23.protocol import load_final_m23_authorization, require_prompt4_hard_gates
 from temporal_ehr.final_m23.reporting import (
     aggregate_m3_validation,
@@ -63,8 +63,12 @@ def parse_args() -> argparse.Namespace:
     m2_task = commands.add_parser("m2-task")
     m2_task.add_argument("--task-index", type=int, required=True)
     m2_task.add_argument("--stage", choices=("reference", "sensitivity"), required=True)
+    m2_task.add_argument("--summaries-only", action="store_true")
     m2_fit = commands.add_parser("m2-fit")
     m2_fit.add_argument("--stage", choices=("reference", "sensitivity"), required=True)
+    m3_prepare = commands.add_parser("m3-prepare-task")
+    m3_prepare.add_argument("--task-index", type=int, required=True)
+    m3_prepare.add_argument("--stage", choices=("reference", "sensitivity"), required=True)
     m3_task = commands.add_parser("m3-task-seed")
     m3_task.add_argument("--array-index", type=int, required=True)
     m3_task.add_argument("--stage", choices=("reference", "sensitivity"), required=True)
@@ -98,11 +102,26 @@ def main() -> int:
                 api_base=str(spec.m2["api_base"]),
                 model=str(spec.m2["instruction_model"]),
             ),
+            embed_summaries=not args.summaries_only,
         )
     elif args.command == "m2-fit":
         result = fit_m2_validation(
             repository_root=root,
             config_path=config_path,
+            stage=args.stage,
+            source_git_commit=_source_commit(),
+        )
+    elif args.command == "m3-prepare-task":
+        if args.task_index not in range(len(spec.tasks)):
+            raise ValueError("M3 preparation task index must map to one of four locked tasks.")
+        task = spec.tasks[args.task_index]
+        result = prepare_m3_task(
+            repository_root=root,
+            config_path=config_path,
+            model_root=_model_root(),
+            event_path=_environment_path("EHRSHOT_DATA_PATH"),
+            asset_root=_environment_path("EHRSHOT_ASSET_ROOT"),
+            task=task,
             stage=args.stage,
             source_git_commit=_source_commit(),
         )
@@ -112,9 +131,6 @@ def main() -> int:
         result = run_m3_task_seed(
             repository_root=root,
             config_path=config_path,
-            model_root=_model_root(),
-            event_path=_environment_path("EHRSHOT_DATA_PATH"),
-            asset_root=_environment_path("EHRSHOT_ASSET_ROOT"),
             task=task,
             seed=seed,
             stage=args.stage,

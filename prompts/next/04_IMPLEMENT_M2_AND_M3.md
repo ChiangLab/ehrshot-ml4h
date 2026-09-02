@@ -8,6 +8,8 @@ Goal: implement the two additional modeling approaches Jeff requested.
 M2: single-pass summary embedding
 - not recursive RAPTOR;
 - take the ordered serialized observation windows;
+- use the same content-matched 8,192-token source history retained for M1 unless an explicit
+  pre-execution protocol amendment authorizes additional source coverage;
 - use one authorized on-premise instruction model;
 - deterministic decoding where supported;
 - preserve diagnoses, procedures, medications, measurements, values, units, recurrence, trends, and supplied time labels;
@@ -25,6 +27,8 @@ Required M2 fidelity validation:
 - whether the summarizer repaired falsified timing;
 - compression ratio and generation failure rate;
 - no held-out prompt refinement.
+- combine the automated audit with manual review of the same frozen 40-history sample; keep the
+  packet and decisions private and export only aggregate pass/fail counts and hashes.
 
 M3: per-window embeddings plus sequence model
 - frozen Qwen3-Embedding-0.6B per window;
@@ -36,16 +40,21 @@ M3: per-window embeddings plus sequence model
 - hidden size 128;
 - input dropout 0.1;
 - AdamW;
-- validation-only early stopping;
+- validation-AUROC early stopping, with log loss only as a deterministic tie-breaker;
 - three frozen training seeds;
 - average probabilities across seeds for final contrasts.
+- prepare and verify seed-independent window sources/embeddings once per task and stage; seed jobs
+  may reuse only that immutable cache and must not reload or re-encode it.
 
 First run M2 and M3 under complete correctly timed history. Apply the prespecified approach-selection rule:
 - select an approach only if macro-AUROC exceeds alternatives by at least 0.005;
 - otherwise prefer M1, then M2, then M3;
 - use log loss only as the second tie-breaker.
 
-After the reference cells pass, implement the temporal conditions needed for within-approach sensitivity. Preserve M1 as the required full temporal matrix even if scope limits the M2/M3 expansion.
+After the reference cells pass, implement the temporal conditions needed for within-approach
+sensitivity. The selected approach must have latest-window and all three C3 seeds for the two
+co-primary held-out contrasts. C0 and C2 remain prespecified secondary sensitivities. Preserve M1
+as the required full temporal matrix even if scope limits the M2/M3 expansion.
 
 Create:
 - notebooks/08_m2_summary_validation.ipynb

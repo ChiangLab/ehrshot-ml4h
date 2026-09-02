@@ -37,6 +37,7 @@ embedding_model:
 m2:
   approach: single_pass_summary_embedding
   recursive: false
+  source_history_policy: m1_content_matched_8192
   instruction_model: nvidia/Qwen3.6-35B-A3B-NVFP4
   api_base: http://10.45.177.17:8000/v1
   endpoint: /chat/completions
@@ -55,10 +56,14 @@ m2:
     top_p: 1.0
     seed: 20260815
     max_output_tokens: 2048
+  execution:
+    concurrent_requests: 4
+    request_retries: 3
   reference_condition: C1_correct_compact_time
   fidelity_condition: C3_shuffled_earlier_time_labels
   fidelity_seed: 20260815
   sensitivity_conditions:
+    - B1_latest_window_only
     - C0_order_only
     - C2_reversed_earlier_gaps
     - C3_shuffled_earlier_time_labels:seed=20260815
@@ -82,12 +87,14 @@ m3:
   approach: per_window_embedding_gru
   reference_condition: C1_correct_compact_time
   sensitivity_conditions:
+    - B1_latest_window_only
     - C0_order_only
     - C2_reversed_earlier_gaps
     - C3_shuffled_earlier_time_labels:seed=20260815
     - C3_shuffled_earlier_time_labels:seed=20260816
     - C3_shuffled_earlier_time_labels:seed=20260817
   max_tokens_per_window: 512
+  embedding_batch_size: 32
   max_recent_nonempty_windows: 64
   mean_pool_logistic_baseline: true
   projection_dimension: 256
@@ -100,7 +107,7 @@ m3:
   batch_size: 32
   maximum_epochs: 50
   early_stopping_patience: 5
-  early_stopping_metric: validation_log_loss
+  early_stopping_metric: validation_auroc
   training_seeds:
     - 20260815
     - 20260816

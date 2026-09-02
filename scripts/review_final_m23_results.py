@@ -57,6 +57,7 @@ def validate_prompt4_aggregates(root: Path, *, require_frozen: bool) -> None:
     _metrics(m2.get("equal_weight_panel_macro"))
     _metrics(m3.get("equal_weight_panel_macro"))
     fidelity = m2.get("fidelity_validation", {})
+    manual = m2.get("manual_fidelity_review", {})
     if (
         fidelity.get("sample_histories") < 40
         or fidelity.get("task_condition_groups") != 8
@@ -64,8 +65,20 @@ def validate_prompt4_aggregates(root: Path, *, require_frozen: bool) -> None:
         or fidelity.get("held_out_prompt_refinement") is not False
     ):
         raise ContractError("M2 fidelity validation is incomplete or not validation-only.")
+    if (
+        manual.get("manual_review_completed") is not True
+        or manual.get("sample_histories") != 40
+        or manual.get("task_condition_groups") != 8
+        or manual.get("validation_only") is not True
+    ):
+        raise ContractError("M2 lacks the required completed manual 40-history fidelity review.")
     if m3.get("training_seeds") != [20260815, 20260816, 20260817]:
         raise ContractError("M3 does not report all three frozen training seeds.")
+    if any(
+        not task_report.get("seed_independent_preparation_report_sha256")
+        for task_report in m3.get("tasks", {}).values()
+    ):
+        raise ContractError("M3 tasks do not attest one shared seed-independent preparation.")
     if m3.get("mean_pool_logistic_baseline_reported") is not True:
         raise ContractError("M3 lacks its mean-pool logistic capacity baseline.")
     if (
@@ -80,6 +93,19 @@ def validate_prompt4_aggregates(root: Path, *, require_frozen: bool) -> None:
     if not require_frozen:
         return
     manifest = json.loads((aggregate / "FROZEN_EXPERIMENT_MANIFEST.json").read_text(encoding="utf-8"))
+    selected = selection.get("selected_approach")
+    if selected in {"M2", "M3"}:
+        sensitivity = json.loads(
+            (aggregate / f"{str(selected).casefold()}_sensitivity.json").read_text(encoding="utf-8")
+        )
+        required_conditions = {
+            "B1_latest_window_only",
+            "C3_shuffled_earlier_time_labels:seed=20260815",
+            "C3_shuffled_earlier_time_labels:seed=20260816",
+            "C3_shuffled_earlier_time_labels:seed=20260817",
+        }
+        if not required_conditions.issubset(set(sensitivity.get("conditions", []))):
+            raise ContractError("Selected-approach sensitivity lacks a co-primary condition.")
     _reject_fields(manifest)
     digest = manifest.pop("frozen_manifest_sha256", None)
     if (
@@ -88,6 +114,10 @@ def validate_prompt4_aggregates(root: Path, *, require_frozen: bool) -> None:
         or manifest.get("protocol_frozen") is not True
         or manifest.get("one_time_held_out_run_authorized_by_prompt4") is not True
         or manifest.get("test_split_accessed") is not False
+        or "C1_correct_compact_time minus B1_latest_window_only"
+        not in manifest.get("authorized_one_time_test_contrasts", [])
+        or "C1_correct_compact_time minus each of three fixed C3 shuffled-label seeds"
+        not in manifest.get("authorized_one_time_test_contrasts", [])
     ):
         raise ContractError("Prompt 4 frozen manifest hash or authorization is invalid.")
 

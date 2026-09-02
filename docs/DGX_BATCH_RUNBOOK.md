@@ -700,13 +700,49 @@ executed notebooks, caches, or private status files. Disconnect VPN after the ag
 
 ## Prompt 4 M2/M3 validation and protocol freeze
 
-Prompt 4 is a two-submission workflow so validation evidence, not job timing, controls expansion.
-The reference submission runs M2 and M3 only under complete correctly timed history (plus the
-prespecified 40-history M2 correct/shuffled fidelity sample). The sensitivity submission reads the
-immutable reference selection and runs additional temporal conditions only for the selected
-approach. M1 already has its complete C0-C3 matrix. All summaries use only
+Prompt 4 has three governed stages: reference compute, human-gated reference finalization, and
+selected-approach sensitivity/freeze. M1 already has its complete C0-C3 matrix and baselines. M2
+summarizes the same content-matched 8,192-token source history as M1, so cross-approach differences
+are not caused by giving M2 additional clinical evidence. All summaries use only
 `http://10.45.177.17:8000/v1` and model `nvidia/Qwen3.6-35B-A3B-NVFP4`; no governed text may leave
 the on-premise network.
+
+Before pulling source or submitting anything, inspect the current DGX state from the repository:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+git rev-parse HEAD
+git status --short --branch
+squeue -u "$USER" -o "%.18i %.12P %.30j %.2t %.10M %.10l %R"
+test -x scripts/slurm/prompt4_status.sh && bash scripts/slurm/prompt4_status.sh
+```
+
+For every active job, inspect its source commit and dependency without modifying it:
+
+```bash
+for job_id in $(squeue -h -u "$USER" -o '%A' | sort -u); do
+  scontrol show job "$job_id" | egrep 'JobId=|JobName=|JobState=|Dependency=|Command=|WorkDir='
+done
+```
+
+Do not pull, cancel, or resubmit while a governed Prompt 4 job from another commit is active. An
+empty `squeue` is also not completion evidence; the helper requires atomic sentinels and lists an
+ended job as `ENDED_WITHOUT_FINAL_SENTINEL`, `FAILED`, or `COMPLETE`.
+
+One known exception is the explicitly superseded `a28eab1` graph 456/458/459/460, which predates
+the required Prompt 4 alignment repairs and must not finish as scientific evidence. Preserve its
+failure log, cancel its remaining scheduler graph, and delete nothing:
+
+```bash
+tail -n 250 slurm-tehr-final-m2-summary-456_0.out
+cat outputs/private/run_status/456_0/FAILED.json 2>/dev/null || true
+scancel 456 458 459 460
+squeue -u "$USER" -o "%.18i %.12P %.30j %.2t %.10M %.10l %R"
+```
+
+Its immutable summary rows may be resumed because their keys contain source, condition, prompt,
+served-model identity, and decoding identity. Aligned M2 embeddings use a full-source-commit
+namespace and cannot collide with any partial embedding left by job 456.
 
 After the Prompt 4 source commit is pushed, connect to MedNet VPN, SSH to the DGX, load the GitHub
 key if needed, and run:
@@ -720,18 +756,55 @@ git status --short --branch
 
 export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
 export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
+export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
 
 curl -fsS http://10.45.177.17:8000/v1/models
+bash scripts/slurm/submit_prompt4_capacity.sh
+source outputs/private/prompt4_capacity_job_id.env
+bash scripts/slurm/prompt4_status.sh
+```
+
+The capacity probe uses synthetic text only. When it finishes, require its COMPLETE sentinel and
+inspect `reports/generated/engineering/prompt4_capacity.json`. The committed defaults use four
+concurrent local-LLM requests and M3 embedding batch size 32. Change either only before reference
+compute, based on the synthetic throughput and peak-memory evidence, then rerun local checks,
+commit, and push. Do not tune these settings from validation outcome performance.
+
+Array concurrency is operational and may be selected at submission without changing model inputs.
+The safe defaults are shown below; leave them unchanged unless the capacity report and Slurm node
+inventory justify a higher value:
+
+```bash
+export PROMPT4_M2_SUMMARY_PARALLELISM=2
+export PROMPT4_M2_EMBED_PARALLELISM=1
+export PROMPT4_M3_PREPARE_PARALLELISM=1
+export PROMPT4_M3_TRAIN_PARALLELISM=2
+```
+
+The submission record preserves these values. Hard caps are respectively 2, 2, 2, and 3, so an
+accidental setting cannot schedule an unbounded array fan-out.
+
+Start reference compute:
+
+```bash
 bash scripts/slurm/submit_prompt4_execution.sh reference
 source outputs/private/prompt4_reference_job_ids.env
-squeue -j "${M2_ARRAY_JOB_ID},${M2_FIT_JOB_ID},${M3_ARRAY_JOB_ID},${M3_FIT_JOB_ID}" \
+squeue -j "${M2_ARRAY_JOB_ID},${M2_EMBED_ARRAY_JOB_ID},${M2_REVIEW_PREP_JOB_ID},${M3_PREP_ARRAY_JOB_ID},${M3_ARRAY_JOB_ID}" \
   -o "%.18i %.12P %.28j %.2t %.10M %.10l %R"
 ```
 
-The deterministic graph is M2 task array 24 -> M2 fit/fidelity 25, M3 task-by-seed array 26, then
-M2 fit plus M3 array -> M3 aggregation/approach selection 27. Arrays run one task at a time on the
-verified node to avoid cache races. Once the jobs are queued, SSH and VPN may be disconnected.
-After every reference job leaves `squeue`, reconnect and require all sentinels and outputs:
+The M2 summary array uses no DGX GPU, runs two tasks concurrently, and issues four concurrent
+requests per task to the separate vLLM server. Its dependent M2 embedding array requests the DGX
+GPU. M3 first prepares each task's seed-independent source and embedding cache once, then launches
+the 12 task/seed GRU jobs with two active by default. Seed jobs never reload or re-encode Qwen, and
+they project retained windows before padding to reduce memory. This lets remote summary generation,
+M3 preparation, M2 embedding, and small-GRU training overlap where Slurm resources permit without
+writing the same cache concurrently. Override only the documented `PROMPT4_*_PARALLELISM`
+variables after the synthetic capacity report; defaults are 2/1/1/2 for M2 summary, M2 embedding,
+M3 preparation, and M3 training. Once queued, SSH and VPN may be disconnected.
+
+After reference compute leaves `squeue`, reconnect and require its sentinels:
 
 ```bash
 cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
@@ -740,17 +813,52 @@ source outputs/private/prompt4_reference_job_ids.env
 for index in 0 1 2 3; do
   test -s "outputs/private/run_status/${M2_ARRAY_JOB_ID}_${index}/COMPLETE.json"
   test ! -e "outputs/private/run_status/${M2_ARRAY_JOB_ID}_${index}/FAILED.json"
+  test -s "outputs/private/run_status/${M2_EMBED_ARRAY_JOB_ID}_${index}/COMPLETE.json"
+  test ! -e "outputs/private/run_status/${M2_EMBED_ARRAY_JOB_ID}_${index}/FAILED.json"
 done
-test -s "outputs/private/run_status/${M2_FIT_JOB_ID}/COMPLETE.json"
-test ! -e "outputs/private/run_status/${M2_FIT_JOB_ID}/FAILED.json"
+test -s "outputs/private/run_status/${M2_REVIEW_PREP_JOB_ID}/COMPLETE.json"
+test ! -e "outputs/private/run_status/${M2_REVIEW_PREP_JOB_ID}/FAILED.json"
+for index in 0 1 2 3; do
+  test -s "outputs/private/run_status/${M3_PREP_ARRAY_JOB_ID}_${index}/COMPLETE.json"
+  test ! -e "outputs/private/run_status/${M3_PREP_ARRAY_JOB_ID}_${index}/FAILED.json"
+done
 for index in $(seq 0 11); do
   test -s "outputs/private/run_status/${M3_ARRAY_JOB_ID}_${index}/COMPLETE.json"
   test ! -e "outputs/private/run_status/${M3_ARRAY_JOB_ID}_${index}/FAILED.json"
 done
+```
+
+Open these two governed files in the remote VS Code window; never copy either off DGX:
+
+```text
+outputs/private/final/locked_four_task_m2_m3_v1/m2/fidelity/manual_review_packet.json
+outputs/private/final/locked_four_task_m2_m3_v1/m2/fidelity/manual_review_decisions.json
+```
+
+For all 40 items, compare `source_text` with `summary`, set each decision field explicitly to
+`true` or `false`, and finally set top-level `review_complete` to `true`. Do not add free-text patient
+notes. A completed FAIL makes M2 ineligible but does not block selection between M1 and M3.
+
+Then finalize the reference stage:
+
+```bash
+bash scripts/slurm/submit_prompt4_execution.sh reference-finalize
+source outputs/private/prompt4_reference_finalize_job_ids.env
+squeue -j "${M2_FIT_JOB_ID},${M3_FIT_JOB_ID}" \
+  -o "%.18i %.12P %.28j %.2t %.10M %.10l %R"
+```
+
+When both jobs leave the queue, require:
+
+```bash
+source outputs/private/prompt4_reference_finalize_job_ids.env
+test -s "outputs/private/run_status/${M2_FIT_JOB_ID}/COMPLETE.json"
+test ! -e "outputs/private/run_status/${M2_FIT_JOB_ID}/FAILED.json"
 test -s "outputs/private/run_status/${M3_FIT_JOB_ID}/COMPLETE.json"
 test ! -e "outputs/private/run_status/${M3_FIT_JOB_ID}/FAILED.json"
 
 test -s reports/generated/final/locked_four_task_m2_m3_v1/m2_reference.json
+test -s reports/generated/final/locked_four_task_m2_m3_v1/m2_manual_fidelity_review.json
 test -s reports/generated/final/locked_four_task_m2_m3_v1/m3_reference.json
 test -s reports/generated/final/locked_four_task_m2_m3_v1/approach_selection.json
 test -s outputs/private/executed_notebooks/08_m2_summary_validation.ipynb
@@ -762,7 +870,9 @@ srun --partition=batch --nodelist=dgit00038673 --cpus-per-task=2 --mem=8G --time
   env PYTHONPATH=src .venv/bin/python scripts/review_final_m23_results.py
 ```
 
-Only after that validator passes, submit the selected sensitivity and freeze stage:
+Only after that validator passes, submit the selected sensitivity and freeze stage. If M2 or M3
+is selected, its conditions include the latest-window baseline and all three C3 seeds required for
+the two co-primary held-out contrasts, plus C0 and C2 secondary sensitivities:
 
 ```bash
 bash scripts/slurm/submit_prompt4_execution.sh sensitivity
@@ -770,6 +880,8 @@ source outputs/private/prompt4_sensitivity_job_ids.env
 PROMPT4_JOBS="${FREEZE_JOB_ID}"
 [[ -n "${SENSITIVITY_FIT_JOB_ID}" ]] && PROMPT4_JOBS="${SENSITIVITY_FIT_JOB_ID},${PROMPT4_JOBS}"
 [[ -n "${SENSITIVITY_ARRAY_JOB_ID}" ]] && PROMPT4_JOBS="${SENSITIVITY_ARRAY_JOB_ID},${PROMPT4_JOBS}"
+[[ -n "${SENSITIVITY_M3_PREP_ARRAY_JOB_ID}" ]] && PROMPT4_JOBS="${SENSITIVITY_M3_PREP_ARRAY_JOB_ID},${PROMPT4_JOBS}"
+[[ -n "${SENSITIVITY_SUMMARY_ARRAY_JOB_ID}" ]] && PROMPT4_JOBS="${SENSITIVITY_SUMMARY_ARRAY_JOB_ID},${PROMPT4_JOBS}"
 squeue -j "${PROMPT4_JOBS}" \
   -o "%.18i %.12P %.28j %.2t %.10M %.10l %R"
 ```
@@ -792,11 +904,14 @@ srun --partition=batch --nodelist=dgit00038673 --cpus-per-task=2 --mem=8G --time
   env PYTHONPATH=src .venv/bin/python scripts/review_final_m23_results.py --require-frozen
 ```
 
-Pass gates are: all submitted jobs have COMPLETE/exit 0 and no FAILED sentinel; the M2 fidelity
-audit covers at least 40 validation histories across eight task/condition strata; M3 covers all
+Pass gates are: all submitted jobs have COMPLETE/exit 0 and no FAILED sentinel; the automated and
+manual M2 fidelity audits cover exactly 40 validation histories across eight task/condition strata;
+M3 covers all
 four tasks, its mean-pool comparator, and all three seeds; selection follows the 0.005 macro-AUROC
-rule; the selected approach's sensitivity exists (or M1's existing full matrix is cited); the
+rule; the selected approach has latest-window and three C3 conditions (or M1's existing results are
+cited); the
 frozen manifest hash validates; and every report states no held-out use. Copy back only
-`m2_reference.json`, `m3_reference.json`, `approach_selection.json`, the selected sensitivity JSON
-if one exists, `FROZEN_EXPERIMENT_MANIFEST.json`, and `reports/generated/handoff/prompt4_handoff.json`.
+`m2_reference.json`, `m2_manual_fidelity_review.json`, `m3_reference.json`,
+`approach_selection.json`, the selected sensitivity JSON if one exists,
+`FROZEN_EXPERIMENT_MANIFEST.json`, and `reports/generated/handoff/prompt4_handoff.json`.
 Never copy summaries, sequence rows, private predictions, embeddings, model weights, or sentinels.

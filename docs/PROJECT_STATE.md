@@ -122,3 +122,27 @@ Status date: 2026-09-01
   approach-selection rule, conditional selected-approach sensitivities, and a cryptographically
   hashed freeze manifest. Local validation passed 118 synthetic tests, Ruff, shell syntax, context,
   and privacy checks without running real data, summaries, embeddings, GRUs, or test evaluation.
+- A pre-execution alignment review found that the initial Prompt 4 source used validation log loss
+  rather than the August protocol's validation AUROC for M3 early stopping, automated but did not
+  human-gate the required 40-history M2 review, and omitted latest-window from the frozen
+  selected-approach co-primary authorization. The working update restores AUROC early stopping,
+  adds a private manual-review packet/decision/aggregate gate, and requires B1 plus all three C3
+  seeds for a selected M2/M3 approach. M2 is explicitly defined as compression of the same
+  content-matched 8,192-token source evidence as M1, pending Jeff confirmation.
+- Engineering acceleration is limited to outcome-independent execution: the GPU-free M2 summary
+  array runs two tasks concurrently with four requests each to the separate on-premise vLLM server;
+  M2 embeddings run in a dependent GPU array; M3 uses frozen-window embedding batch size 32; and
+  truthful Slurm reservations replace blanket 110G requests. A new synthetic-only capacity probe
+  must confirm throughput and memory before governed reference work.
+- M3 scheduling now has a seed-independent four-task preparation array followed by its 12
+  task/seed training array. This removes eight redundant frozen-encoder loads in the reference
+  stage, makes every seed consume one hashed preparation report, permits two lightweight GRU jobs
+  concurrently by default, and projects retained windows before padding to reduce peak memory.
+  A read-only status helper reports live Slurm state plus COMPLETE/FAILED sentinels without opening
+  governed artifacts. No Prompt 4 governed job has been declared complete from these source changes.
+- Before this alignment/scheduling update reached `main`, the old `a28eab1` Prompt 4 helper
+  submitted M2 array 456, M2 fit 458, M3 array 459, and M3 fit 460. At 2026-09-02T01:00Z, 456_0
+  was FAILED, 456_1 was consuming the old 110G/GPU reservation, and the M3 array was blocked for
+  resources. This graph is superseded and must be canceled/preserved. New M2 embedding paths include
+  the full source commit, while valid summary rows remain reusable only through their immutable
+  source/condition/prompt/model/decoding key.

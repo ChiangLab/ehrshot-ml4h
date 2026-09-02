@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -34,6 +35,16 @@ NUMBER_RE = re.compile(r"(?<![A-Za-z_])[-+]?\d+(?:\.\d+)?")
 UNIT_RE = re.compile(r"\bunit=([^|\n]+)")
 VALUE_RE = re.compile(r"value=([-+]?\d+(?:\.\d+)?)")
 TREND_WORDS = {"increasing", "decreasing", "stable"}
+MANUAL_REVIEW_CRITERIA = (
+    "concepts_preserved",
+    "numeric_values_preserved",
+    "units_preserved",
+    "recurrence_and_trends_preserved",
+    "time_labels_preserved",
+    "no_unsupported_concepts",
+    "no_contradictions",
+    "no_timing_repair",
+)
 
 
 def validate_on_premise_api_base(api_base: str) -> str:
@@ -83,7 +94,7 @@ class OnPremiseSummaryClient:
             raise ContractError("The locked M2 instruction model is not served by the on-premise endpoint.")
         stable_identity = {
             field: record.get(field)
-            for field in ("id", "root", "parent", "owned_by", "max_model_len")
+            for field in ("id", "root", "parent", "owned_by", "max_model_len", "created")
         }
         return stable_hash(stable_identity)
 
@@ -137,6 +148,29 @@ def summary_cache_key(
     )
 
 
+def _summarize_with_retries(
+    client: OnPremiseSummaryClient,
+    *,
+    system_prompt: str,
+    source_text: str,
+    decoding: Mapping[str, Any],
+    retries: int,
+) -> str:
+    """Retry transient private-endpoint failures without changing generation inputs."""
+    for attempt in range(retries + 1):
+        try:
+            return client.summarize(
+                system_prompt=system_prompt,
+                source_text=source_text,
+                decoding=decoding,
+            )
+        except RuntimeError:
+            if attempt == retries:
+                raise
+            time.sleep(min(2**attempt, 8))
+    raise AssertionError("unreachable")
+
+
 def m2_source_text(prepared_text: str, instruction: str) -> str:
     """Remove M1's prediction instruction and retain only ordered observation windows."""
     prefix = instruction.strip()
@@ -180,6 +214,26 @@ class SummaryCache:
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_json(path, payload)
         return path
+
+
+def m2_embedding_root(
+    spec: FinalM23Authorization,
+    *,
+    task: str,
+    label: str,
+    source_git_commit: str,
+) -> Path:
+    """Isolate source-bound embedding attempts while allowing summary-row reuse."""
+    if not re.fullmatch(r"[0-9a-f]{40}", source_git_commit):
+        raise ContractError("M2 embedding namespace requires a full source Git commit.")
+    return (
+        spec.private_root
+        / "m2"
+        / "embeddings"
+        / f"source_{source_git_commit}"
+        / task
+        / condition_slug(label)
+    )
 
 
 def _condition_rows(rows: Sequence[Mapping[str, Any]], label: str) -> list[dict[str, Any]]:
@@ -259,7 +313,12 @@ def _embed_summaries(
         stable_hash({"summary_cache_key": summary_key, "instance_key": row["instance_key"]})
         for row, summary_key in zip(selected, summary_keys, strict=True)
     ]
-    root = spec.private_root / "m2" / "embeddings" / task / condition_slug(label)
+    root = m2_embedding_root(
+        spec,
+        task=task,
+        label=label,
+        source_git_commit=source_git_commit,
+    )
     configuration_hash = stable_hash(
         {
             "experiment": spec.experiment_id,
@@ -335,6 +394,7 @@ def run_m2_task(
     stage: str,
     source_git_commit: str,
     client: OnPremiseSummaryClient | None = None,
+    embed_summaries: bool = True,
 ) -> dict[str, Any]:
     """Generate/cache one-pass summaries and embed the stage-authorized conditions."""
     spec = load_final_m23_authorization(config_path, repository_root=repository_root)
@@ -353,8 +413,12 @@ def run_m2_task(
     prompt_hash = stable_hash({"version": spec.m2["prompt_version"], "prompt": prompt})
     decoding = dict(spec.m2["decoding"])
     decoding_hash = stable_hash(decoding)
+    concurrent_requests = int(spec.m2["execution"]["concurrent_requests"])
+    request_retries = int(spec.m2["execution"]["request_retries"])
     cache = SummaryCache(spec.private_root / "m2" / "summaries" / task)
-    summaries: dict[str, dict[str, Any]] = {}
+    representation_keys: dict[str, str] = {}
+    payloads_by_key: dict[str, dict[str, Any]] = {}
+    pending_by_key: dict[str, tuple[str, dict[str, Any]]] = {}
     reused = 0
     started = time.perf_counter()
     for row in rows:
@@ -376,44 +440,82 @@ def run_m2_task(
             "model_revision_hash": model_revision_hash,
             "decoding_hash": decoding_hash,
         }
-        payload = cache.load(key, expected)
-        if payload is None:
-            summary = summary_client.summarize(
+        if key not in payloads_by_key and key not in pending_by_key:
+            payload = cache.load(key, expected)
+            if payload is None:
+                pending_by_key[key] = (source_text, expected)
+            else:
+                payloads_by_key[key] = payload
+                reused += 1
+        representation_keys[str(row["representation_key"])] = key
+    if pending_by_key:
+        failures: list[BaseException] = []
+
+        def generate(cache_key: str) -> tuple[str, dict[str, Any]]:
+            source_text, expected = pending_by_key[cache_key]
+            summary = _summarize_with_retries(
+                summary_client,
                 system_prompt=prompt,
                 source_text=source_text,
                 decoding=decoding,
+                retries=request_retries,
             )
-            payload = {**expected, "summary": summary, "summary_hash": stable_hash(summary)}
-            cache.store(key, payload)
-        else:
-            reused += 1
-        summaries[str(row["representation_key"])] = payload
-    identity = load_model_identity(
-        model_root / spec.model_directory_name,
-        expected_repository=spec.model_repository,
-    )
-    encoder = LocalQwenEncoder(identity, max_seq_length=8192)
-    labels = sorted(
-        {
-            condition_label(row)
-            for row in rows
-            if not (stage == "reference" and row["split"] == "validation" and condition_label(row).startswith("C3_"))
-        }
-    )
-    embedding_reports = [
-        _embed_summaries(
-            spec=spec,
-            task=task,
-            label=label,
-            rows=rows,
-            summaries=summaries,
-            encoder=encoder,
-            identity_hash=identity.artifact_hash,
-            tokenizer_hash=identity.tokenizer_hash,
-            source_git_commit=source_git_commit,
+            return cache_key, {
+                **expected,
+                "summary": summary,
+                "summary_hash": stable_hash(summary),
+            }
+
+        with ThreadPoolExecutor(max_workers=min(concurrent_requests, len(pending_by_key))) as executor:
+            futures = {executor.submit(generate, key): key for key in pending_by_key}
+            for future in as_completed(futures):
+                try:
+                    key, payload = future.result()
+                    cache.store(key, payload)
+                    payloads_by_key[key] = payload
+                except BaseException as exc:  # preserve every successful row before failing closed
+                    failures.append(exc)
+        if failures:
+            raise RuntimeError(
+                f"{len(failures)} on-premise summary request(s) failed after locked retries."
+            ) from failures[0]
+    summaries = {
+        representation_key: payloads_by_key[cache_key]
+        for representation_key, cache_key in representation_keys.items()
+    }
+    identity = None
+    embedding_reports: list[dict[str, Any]] = []
+    if embed_summaries:
+        identity = load_model_identity(
+            model_root / spec.model_directory_name,
+            expected_repository=spec.model_repository,
         )
-        for label in labels
-    ]
+        encoder = LocalQwenEncoder(identity, max_seq_length=8192)
+        labels = sorted(
+            {
+                condition_label(row)
+                for row in rows
+                if not (
+                    stage == "reference"
+                    and row["split"] == "validation"
+                    and condition_label(row).startswith("C3_")
+                )
+            }
+        )
+        embedding_reports = [
+            _embed_summaries(
+                spec=spec,
+                task=task,
+                label=label,
+                rows=rows,
+                summaries=summaries,
+                encoder=encoder,
+                identity_hash=identity.artifact_hash,
+                tokenizer_hash=identity.tokenizer_hash,
+                source_git_commit=source_git_commit,
+            )
+            for label in labels
+        ]
     report = {
         "status": "PASS",
         "experiment_id": spec.experiment_id,
@@ -422,6 +524,10 @@ def run_m2_task(
         "task": task,
         "summaries": len(rows),
         "summary_cache_rows_reused": reused,
+        "summary_rows_generated_this_attempt": len(pending_by_key),
+        "source_history_policy": str(spec.m2["source_history_policy"]),
+        "concurrent_summary_requests": concurrent_requests,
+        "request_retries": request_retries,
         "summary_cache_key_fields": [
             "source_hash",
             "condition",
@@ -432,18 +538,22 @@ def run_m2_task(
         "single_pass_nonrecursive": True,
         "instruction_model": str(spec.m2["instruction_model"]),
         "instruction_model_revision_hash": model_revision_hash,
+        "instruction_model_revision_kind": "served_endpoint_identity_including_created_timestamp",
         "on_premise_only": True,
         "external_api_used": False,
         "deterministic_decoding": True,
-        "embedding_model": identity.repository,
-        "embedding_model_artifact_hash": identity.artifact_hash,
+        "summary_stage_complete": True,
+        "embedding_stage_complete": embed_summaries,
+        "embedding_model": identity.repository if identity is not None else None,
+        "embedding_model_artifact_hash": identity.artifact_hash if identity is not None else None,
         "embedding_reports": embedding_reports,
         "runtime_seconds": time.perf_counter() - started,
         "test_split_used": False,
     }
     text = json.dumps(report, indent=2, sort_keys=True) + "\n"
     assert_privacy_safe_report(text)
-    report_path = spec.aggregate_root / "m2" / "tasks" / f"{task}_{stage}.json"
+    suffix = stage if embed_summaries else f"{stage}_summaries"
+    report_path = spec.aggregate_root / "m2" / "tasks" / f"{task}_{suffix}.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     if report_path.is_file():
         previous = json.loads(report_path.read_text(encoding="utf-8"))
@@ -507,13 +617,12 @@ def _counter_retention(source: Counter[str], summary: Counter[str]) -> tuple[int
     return retained, denominator
 
 
-def audit_summary_fidelity(
+def balanced_fidelity_sample(
     records: Sequence[Mapping[str, Any]],
     *,
-    thresholds: Mapping[str, Any],
     histories_per_task_condition: int,
-) -> dict[str, Any]:
-    """Audit a deterministic balanced validation sample without exposing its rows."""
+) -> list[dict[str, Any]]:
+    """Select the frozen validation-only 4-task by 2-condition fidelity sample."""
     eligible = [dict(row) for row in records if row.get("split") == "validation"]
     groups: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in eligible:
@@ -526,6 +635,122 @@ def audit_summary_fidelity(
         if len(ranked) < histories_per_task_condition:
             raise ContractError("M2 fidelity group is too small for its prespecified balanced sample.")
         sample.extend(ranked[:histories_per_task_condition])
+    return sample
+
+
+def build_manual_fidelity_packet(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    histories_per_task_condition: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build a private review packet and a fillable decision template without patient identity."""
+    sample = balanced_fidelity_sample(
+        records,
+        histories_per_task_condition=histories_per_task_condition,
+    )
+    entries = []
+    decisions = []
+    for row in sample:
+        review_id = stable_hash(
+            {
+                "schema": "m2_manual_fidelity_v1",
+                "task": row["task"],
+                "condition": row["condition"],
+                "instance_key": row["instance_key"],
+                "source_hash": stable_hash(str(row["source_text"])),
+                "summary_hash": stable_hash(str(row["summary"])),
+            }
+        )
+        entries.append(
+            {
+                "review_id": review_id,
+                "task": row["task"],
+                "condition": row["condition"],
+                "source_text": row["source_text"],
+                "summary": row["summary"],
+            }
+        )
+        decisions.append(
+            {
+                "review_id": review_id,
+                "task": row["task"],
+                "condition": row["condition"],
+                **{criterion: None for criterion in MANUAL_REVIEW_CRITERIA},
+            }
+        )
+    packet = {
+        "schema_version": 1,
+        "privacy": "GOVERNED_PRIVATE_DO_NOT_COPY_OFF_DGX",
+        "instructions": (
+            "Compare each source_text with its summary. Set every decision field to true or false; "
+            "do not add patient facts or free-text notes."
+        ),
+        "entries": entries,
+    }
+    template = {
+        "schema_version": 1,
+        "privacy": "GOVERNED_PRIVATE_DO_NOT_COPY_OFF_DGX",
+        "review_complete": False,
+        "decisions": decisions,
+    }
+    return packet, template
+
+
+def validate_manual_fidelity_decisions(
+    packet: Mapping[str, Any],
+    decisions: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return a privacy-safe aggregate; any incomplete or failed item makes M2 ineligible."""
+    entries = packet.get("entries")
+    reviewed = decisions.get("decisions")
+    if not isinstance(entries, list) or not isinstance(reviewed, list) or len(entries) != 40:
+        raise ContractError("Manual M2 fidelity review must cover the frozen 40-history packet.")
+    if decisions.get("review_complete") is not True or len(reviewed) != len(entries):
+        raise ContractError("Manual M2 fidelity decisions are incomplete.")
+    expected = {str(row["review_id"]): row for row in entries}
+    observed: dict[str, Mapping[str, Any]] = {}
+    for row in reviewed:
+        if not isinstance(row, dict) or str(row.get("review_id", "")) in observed:
+            raise ContractError("Manual M2 fidelity decisions contain a duplicate or invalid review ID.")
+        review_id = str(row["review_id"])
+        if review_id not in expected:
+            raise ContractError("Manual M2 fidelity decisions do not match the frozen packet.")
+        if row.get("task") != expected[review_id]["task"] or row.get("condition") != expected[review_id]["condition"]:
+            raise ContractError("Manual M2 fidelity task/condition metadata drifted.")
+        if any(type(row.get(criterion)) is not bool for criterion in MANUAL_REVIEW_CRITERIA):
+            raise ContractError("Every manual M2 fidelity criterion must be explicitly true or false.")
+        observed[review_id] = row
+    if set(observed) != set(expected):
+        raise ContractError("Manual M2 fidelity decisions omit a frozen review item.")
+    failures = {
+        criterion: sum(not bool(row[criterion]) for row in observed.values())
+        for criterion in MANUAL_REVIEW_CRITERIA
+    }
+    groups = {(str(row["task"]), str(row["condition"])) for row in entries}
+    passed = all(value == 0 for value in failures.values())
+    return {
+        "status": "PASS" if passed else "FAIL",
+        "manual_review_completed": True,
+        "validation_only": True,
+        "sample_histories": len(entries),
+        "task_condition_groups": len(groups),
+        "criteria_failure_counts": failures,
+        "held_out_prompt_refinement": False,
+        "patient_level_content_in_aggregate": False,
+    }
+
+
+def audit_summary_fidelity(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    thresholds: Mapping[str, Any],
+    histories_per_task_condition: int,
+) -> dict[str, Any]:
+    """Audit a deterministic balanced validation sample without exposing its rows."""
+    sample = balanced_fidelity_sample(
+        records,
+        histories_per_task_condition=histories_per_task_condition,
+    )
     totals = Counter()
     retained = Counter()
     unsupported = 0
@@ -592,7 +817,7 @@ def audit_summary_fidelity(
         "status": "PASS" if passed else "FAIL",
         "validation_only": True,
         "sample_histories": len(sample),
-        "task_condition_groups": len(groups),
+        "task_condition_groups": 8,
         "histories_per_task_condition": histories_per_task_condition,
         "retention": rates,
         "unsupported_fact_rate": unsupported_rate,

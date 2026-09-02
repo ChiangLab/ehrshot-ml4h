@@ -11,15 +11,20 @@ from temporal_ehr.experiments import FINAL_TASKS
 from temporal_ehr.final_m23.m2 import (
     SummaryCache,
     audit_summary_fidelity,
+    build_manual_fidelity_packet,
+    m2_embedding_root,
     m2_source_text,
     summary_cache_key,
+    validate_manual_fidelity_decisions,
     validate_on_premise_api_base,
 )
 from temporal_ehr.final_m23.m3 import (
     fixed_projection,
     m3_stage_labels,
     pad_sequences,
+    project_then_pad_sequences,
     split_serialized_windows,
+    validation_auroc_improved,
 )
 from temporal_ehr.final_m23.protocol import (
     M3_SEEDS,
@@ -75,6 +80,30 @@ def test_summary_cache_key_covers_all_required_generation_inputs() -> None:
     keys = {summary_cache_key(**{**base, field: f"changed-{field}"}) for field in base}
     keys.add(summary_cache_key(**base))
     assert len(keys) == len(base) + 1
+
+
+def test_m2_embedding_namespace_isolates_source_commits() -> None:
+    first = m2_embedding_root(
+        _spec(),
+        task=FINAL_TASKS[0],
+        label="C1_correct_compact_time",
+        source_git_commit="a" * 40,
+    )
+    second = m2_embedding_root(
+        _spec(),
+        task=FINAL_TASKS[0],
+        label="C1_correct_compact_time",
+        source_git_commit="b" * 40,
+    )
+    assert first != second
+    assert "source_" + "a" * 40 in first.parts
+    with pytest.raises(ContractError):
+        m2_embedding_root(
+            _spec(),
+            task=FINAL_TASKS[0],
+            label="C1_correct_compact_time",
+            source_git_commit="short",
+        )
 
 
 def test_m2_receives_observation_windows_without_m1_prediction_instruction() -> None:
@@ -186,6 +215,27 @@ def test_m2_fidelity_reports_structured_fact_contradictions() -> None:
     assert report["contradictions"] >= 1
 
 
+def test_m2_manual_fidelity_requires_all_40_explicit_reviews() -> None:
+    packet, decisions = build_manual_fidelity_packet(
+        _fidelity_records(),
+        histories_per_task_condition=5,
+    )
+    assert len(packet["entries"]) == 40
+    assert all("instance_key" not in row for row in packet["entries"])
+    decisions["review_complete"] = True
+    for row in decisions["decisions"]:
+        for key in tuple(row):
+            if key not in {"review_id", "task", "condition"}:
+                row[key] = True
+    report = validate_manual_fidelity_decisions(packet, decisions)
+    assert report["status"] == "PASS"
+    assert report["sample_histories"] == 40
+    decisions["decisions"][0]["no_timing_repair"] = False
+    report = validate_manual_fidelity_decisions(packet, decisions)
+    assert report["status"] == "FAIL"
+    assert report["criteria_failure_counts"]["no_timing_repair"] == 1
+
+
 def test_m3_window_split_keeps_64_most_recent_without_reordering() -> None:
     text = "instruction\n" + "\n".join(
         f"[TIME={index * 30 + 1}_{(index + 1) * 30}_DAYS_BEFORE_T]\n- code-{index}"
@@ -209,6 +259,36 @@ def test_m3_padding_mask_and_fixed_projection_are_deterministic() -> None:
     projected_c = fixed_projection(padded, output_dimension=2, seed=20260820)
     assert np.array_equal(projected_a, projected_b)
     assert not np.array_equal(projected_a, projected_c)
+    projected_then_padded, projected_lengths, projected_mask = project_then_pad_sequences(
+        [first, second],
+        maximum_windows=4,
+        output_dimension=2,
+        seed=20260819,
+    )
+    assert np.allclose(projected_then_padded, projected_a)
+    assert np.array_equal(projected_lengths, lengths)
+    assert np.array_equal(projected_mask, mask)
+
+
+def test_m3_early_stopping_maximizes_auroc_and_uses_log_loss_only_for_ties() -> None:
+    assert validation_auroc_improved(
+        current_auroc=0.71,
+        best_auroc=0.70,
+        current_log_loss=0.70,
+        best_log_loss=0.50,
+    )
+    assert validation_auroc_improved(
+        current_auroc=0.70,
+        best_auroc=0.70,
+        current_log_loss=0.49,
+        best_log_loss=0.50,
+    )
+    assert not validation_auroc_improved(
+        current_auroc=0.69,
+        best_auroc=0.70,
+        current_log_loss=0.40,
+        best_log_loss=0.50,
+    )
 
 
 def test_m3_three_seed_patient_alignment_and_probability_average() -> None:
@@ -237,6 +317,10 @@ def test_m3_three_seed_patient_alignment_and_probability_average() -> None:
 def test_m3_sensitivity_is_blocked_before_reference_selection(tmp_path: Path) -> None:
     spec = _spec()
     assert m3_stage_labels(spec, "reference") == ("C1_correct_compact_time",)
+    assert spec.m2["sensitivity_conditions"][0] == "B1_latest_window_only"
+    assert spec.m3["sensitivity_conditions"][0] == "B1_latest_window_only"
+    assert spec.m3["early_stopping_metric"] == "validation_auroc"
+    assert spec.m3["embedding_batch_size"] == 32
     assert not (tmp_path / "approach_selection.json").exists()
     # The real spec points only to the Git-ignored governed namespace and currently has no selection.
     if not (spec.aggregate_root / "approach_selection.json").exists():
@@ -294,6 +378,59 @@ def test_prompt4_batch_scripts_use_atomic_sentinels_and_no_test_commands() -> No
         assert "final_container_python" in text
         assert "test_split" not in text
         assert "OpenAI" not in text
+    manual = Path("scripts/slurm/25a_prepare_m2_fidelity_review.sbatch").read_text(
+        encoding="utf-8"
+    )
+    assert "review_m2_fidelity_manual.py prepare" in manual
+    assert "final_initialize" in manual
+    assert "final_mark_success" in manual
+    summary = Path("scripts/slurm/24_m2_summary_task_array.sbatch").read_text(encoding="utf-8")
+    embed = Path("scripts/slurm/24b_m2_embed_task_array.sbatch").read_text(encoding="utf-8")
+    m3_prepare = Path("scripts/slurm/26a_m3_prepare_task_array.sbatch").read_text(
+        encoding="utf-8"
+    )
+    m3_train = Path("scripts/slurm/26_m3_task_seed_array.sbatch").read_text(encoding="utf-8")
+    assert "--summaries-only" in summary
+    assert "#SBATCH --gres" not in summary
+    assert "#SBATCH --gres=mps:1" in embed
+    assert "m3-prepare-task" in m3_prepare
+    assert "#SBATCH --array=0-3%1" in m3_prepare
+    assert "#SBATCH --array=0-11%2" in m3_train
+    assert "TEMPORAL_EHR_MODEL_ROOT" not in m3_train
+
+
+def test_prompt4_submission_splits_m3_preparation_from_parallel_seed_training() -> None:
+    submit = Path("scripts/slurm/submit_prompt4_execution.sh").read_text(encoding="utf-8")
+    assert "M3_PREP_ARRAY_JOB_ID" in submit
+    assert 'afterok:${M3_PREP_ARRAY_JOB_ID}' in submit
+    assert '0-11%${M3_TRAIN_PARALLELISM}' in submit
+    assert "PROMPT4_M3_TRAIN_PARALLELISM" in submit
+    assert "SENSITIVITY_M3_PREP_ARRAY_JOB_ID" in submit
+
+
+def test_prompt4_status_helper_is_read_only_and_sentinel_aware() -> None:
+    source = Path("scripts/slurm/prompt4_status.sh").read_text(encoding="utf-8")
+    assert "squeue" in source
+    assert "COMPLETE.json" in source
+    assert "FAILED.json" in source
+    assert "scancel" not in source
+    assert "sbatch" not in source
+
+
+def test_prompt4_freeze_authorizes_both_co_primary_contrasts() -> None:
+    source = Path("src/temporal_ehr/final_m23/reporting.py").read_text(encoding="utf-8")
+    assert "C1_correct_compact_time minus B1_latest_window_only" in source
+    assert "C1_correct_compact_time minus each of three fixed C3" in source
+    submit = Path("scripts/slurm/submit_prompt4_execution.sh").read_text(encoding="utf-8")
+    assert "reference-finalize" in submit
+    assert "review_m2_fidelity_manual.py finalize" in submit
+
+
+def test_prompt4_capacity_probe_is_synthetic_only() -> None:
+    source = Path("scripts/dgx/benchmark_prompt4_capacity.py").read_text(encoding="utf-8")
+    assert "SYNTHETIC_ENGINEERING_CAPACITY_ONLY" in source
+    assert "patient_data_used" in source
+    assert "EHRSHOT_DATA_PATH" not in source
 
 
 def test_prompt4_source_contains_no_external_summary_provider_or_patient_artifact() -> None:

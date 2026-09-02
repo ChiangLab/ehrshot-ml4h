@@ -16,6 +16,7 @@ from temporal_ehr.serialization.integrity import stable_hash
 
 M3_SEEDS = (20260815, 20260816, 20260817)
 M2_SENSITIVITY = (
+    "B1_latest_window_only",
     "C0_order_only",
     "C2_reversed_earlier_gaps",
     "C3_shuffled_earlier_time_labels:seed=20260815",
@@ -111,6 +112,7 @@ def load_final_m23_authorization(
     if not isinstance(m2, dict) or (
         m2.get("approach") != "single_pass_summary_embedding"
         or m2.get("recursive") is not False
+        or m2.get("source_history_policy") != "m1_content_matched_8192"
         or m2.get("instruction_model") != "nvidia/Qwen3.6-35B-A3B-NVFP4"
         or m2.get("api_base") != "http://10.45.177.17:8000/v1"
         or m2.get("on_premise_only") is not True
@@ -128,6 +130,12 @@ def load_final_m23_authorization(
         or int(decoding.get("max_output_tokens", 0)) < 1
     ):
         raise ContractError("M2 decoding is not deterministically locked.")
+    execution = m2.get("execution")
+    if not isinstance(execution, dict) or (
+        int(execution.get("concurrent_requests", 0)) not in range(1, 17)
+        or int(execution.get("request_retries", -1)) not in range(0, 6)
+    ):
+        raise ContractError("M2 execution concurrency or retry policy is not safely locked.")
     fidelity = m2.get("fidelity")
     if not isinstance(fidelity, dict) or (
         int(fidelity.get("validation_histories", 0)) < 40
@@ -142,13 +150,14 @@ def load_final_m23_authorization(
         or m3.get("reference_condition") != "C1_correct_compact_time"
         or tuple(m3.get("sensitivity_conditions", ())) != M2_SENSITIVITY
         or int(m3.get("max_tokens_per_window", 0)) != 512
+        or int(m3.get("embedding_batch_size", 0)) not in (4, 8, 16, 32, 64)
         or int(m3.get("max_recent_nonempty_windows", 0)) != 64
         or m3.get("mean_pool_logistic_baseline") is not True
         or int(m3.get("projection_dimension", 0)) != 256
         or int(m3.get("hidden_size", 0)) != 128
         or float(m3.get("input_dropout", -1)) != 0.1
         or m3.get("optimizer") != "AdamW"
-        or m3.get("early_stopping_metric") != "validation_log_loss"
+        or m3.get("early_stopping_metric") != "validation_auroc"
         or tuple(m3.get("training_seeds", ())) != M3_SEEDS
     ):
         raise ContractError("Prompt 4 M3 architecture or seed contract drifted.")

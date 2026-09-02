@@ -4,7 +4,7 @@
 #SBATCH --partition=batch
 #SBATCH --nodelist=dgit00038673
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=110G
+#SBATCH --mem=32G
 #SBATCH --time=04:00:00
 
 set -euo pipefail

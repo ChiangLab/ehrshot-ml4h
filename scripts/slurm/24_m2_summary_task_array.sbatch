@@ -3,11 +3,10 @@
 #SBATCH --output=slurm-%x-%A_%a.out
 #SBATCH --partition=batch
 #SBATCH --nodelist=dgit00038673
-#SBATCH --array=0-3%1
+#SBATCH --array=0-3%2
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=110G
+#SBATCH --mem=24G
 #SBATCH --time=12:00:00
-#SBATCH --gres=mps:1
 
 set -euo pipefail
 
@@ -26,5 +25,5 @@ export FINAL_M23_GIT_COMMIT="${FINAL_M1_GIT_COMMIT}"
 export TEMPORAL_EHR_MODEL_ROOT="${MODEL_ROOT}"
 final_container_python "${PYTHON}" scripts/run_final_m23.py --config "${CONFIG}" hard-gates
 final_container_python "${PYTHON}" scripts/run_final_m23.py --config "${CONFIG}" m2-task \
-  --task-index "${ARRAY_INDEX}" --stage "${M23_STAGE}"
+  --task-index "${ARRAY_INDEX}" --stage "${M23_STAGE}" --summaries-only
 final_mark_success

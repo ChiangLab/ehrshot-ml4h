@@ -43,10 +43,21 @@ evaluation was performed.
 Prompt 4 source is implemented for M2 one-pass summaries and M3 per-window sequences. M2 is
 hard-bound to the on-premise `10.45.177.17:8000` endpoint, uses immutable source/condition/prompt/
 model-revision/decoding cache identity, and includes the prespecified balanced 40-history fidelity
-audit. M3 uses frozen 512-token Qwen window embeddings, at most 64 recent nonempty windows, a
+audit plus a required private manual review of the same sample. M2 uses the same content-matched
+8,192-token source evidence as M1 pending Jeff confirmation. M3 uses frozen 512-token Qwen window
+embeddings, at most 64 recent nonempty windows, a
 mean-pool logistic comparator, and a one-layer 128-hidden-unit unidirectional GRU under seeds
-20260815-20260817. The reference graph must complete before conditional sensitivity and freeze.
-Do not run either real path locally or submit sensitivity before `approach_selection.json` passes.
+20260815-20260817 with validation-AUROC early stopping. The reference arrays must complete, the
+manual M2 review must be finalized, and `approach_selection.json` must pass before conditional
+sensitivity. The selected approach must have B1 latest-window and all three C3 seeds before freeze.
+Execution separates M3's seed-independent source/embedding preparation from its 12 seed-training
+jobs. The frozen encoder is loaded once per task/stage rather than once per seed, and two small GRU
+jobs may share the DGX after preparation; this is scheduling only and changes no model cell.
+An obsolete Prompt 4 graph was submitted on the DGX from pre-alignment commit `a28eab1`: M2 array
+456, M2 fit 458, M3 array 459, and M3 fit 460. Task 456_0 failed and the remaining graph must be
+canceled and preserved, never treated as final evidence. Immutable per-row summary records may be
+reused by their scientific cache key, but new embedding caches are isolated by full source commit.
+Do not run either real path locally or submit sensitivity before these gates pass.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those
