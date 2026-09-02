@@ -35,6 +35,7 @@ NUMBER_RE = re.compile(r"(?<![A-Za-z_])[-+]?\d+(?:\.\d+)?")
 UNIT_RE = re.compile(r"\bunit=([^|\n]+)")
 VALUE_RE = re.compile(r"value=([-+]?\d+(?:\.\d+)?)")
 TREND_WORDS = {"increasing", "decreasing", "stable"}
+NULL_LIKE_SUMMARIES = frozenset({"none", "null"})
 MANUAL_REVIEW_CRITERIA = (
     "concepts_preserved",
     "numeric_values_preserved",
@@ -115,15 +116,19 @@ class OnPremiseSummaryClient:
             "top_p": float(decoding["top_p"]),
             "seed": int(decoding["seed"]),
             "max_tokens": int(decoding["max_output_tokens"]),
+            "chat_template_kwargs": dict(decoding["chat_template_kwargs"]),
             "stream": False,
         }
         result = self._request("chat/completions", payload)
         try:
-            summary = str(result["choices"][0]["message"]["content"]).strip()
+            content = result["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError("On-premise summary response lacks assistant content.") from exc
-        if not summary:
-            raise RuntimeError("On-premise summary response was empty.")
+        if not isinstance(content, str):
+            raise RuntimeError("On-premise summary response content was not text.")
+        summary = content.strip()
+        if not summary or summary.casefold() in NULL_LIKE_SUMMARIES:
+            raise RuntimeError("On-premise summary response was empty or null-like.")
         return summary
 
 
@@ -202,7 +207,12 @@ class SummaryCache:
         if any(payload.get(field) != value for field, value in expected.items()):
             raise ContractError("Existing M2 summary cache row does not match its immutable inputs.")
         summary = payload.get("summary")
-        if not isinstance(summary, str) or not summary.strip() or payload.get("summary_hash") != stable_hash(summary):
+        if (
+            not isinstance(summary, str)
+            or not summary.strip()
+            or summary.strip().casefold() in NULL_LIKE_SUMMARIES
+            or payload.get("summary_hash") != stable_hash(summary)
+        ):
             raise ContractError("Existing M2 summary cache row is empty or hash-mismatched.")
         return payload
 
@@ -468,11 +478,28 @@ def run_m2_task(
 
         with ThreadPoolExecutor(max_workers=min(concurrent_requests, len(pending_by_key))) as executor:
             futures = {executor.submit(generate, key): key for key in pending_by_key}
+            completed_new = 0
             for future in as_completed(futures):
                 try:
                     key, payload = future.result()
                     cache.store(key, payload)
                     payloads_by_key[key] = payload
+                    completed_new += 1
+                    if completed_new % 100 == 0 or completed_new == len(pending_by_key):
+                        print(
+                            json.dumps(
+                                {
+                                    "event": "m2_summary_progress",
+                                    "task": task,
+                                    "stage": stage,
+                                    "completed_new_cache_rows": completed_new,
+                                    "pending_new_cache_rows": len(pending_by_key),
+                                    "reused_cache_rows": reused,
+                                },
+                                sort_keys=True,
+                            ),
+                            flush=True,
+                        )
                 except BaseException as exc:  # preserve every successful row before failing closed
                     failures.append(exc)
         if failures:
@@ -542,6 +569,7 @@ def run_m2_task(
         "on_premise_only": True,
         "external_api_used": False,
         "deterministic_decoding": True,
+        "thinking_disabled": decoding["chat_template_kwargs"]["enable_thinking"] is False,
         "summary_stage_complete": True,
         "embedding_stage_complete": embed_summaries,
         "embedding_model": identity.repository if identity is not None else None,

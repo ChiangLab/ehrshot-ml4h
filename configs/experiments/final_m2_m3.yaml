@@ -56,6 +56,8 @@ m2:
     top_p: 1.0
     seed: 20260815
     max_output_tokens: 2048
+    chat_template_kwargs:
+      enable_thinking: false
   execution:
     concurrent_requests: 4
     request_retries: 3

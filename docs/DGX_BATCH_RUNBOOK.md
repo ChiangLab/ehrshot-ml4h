@@ -915,3 +915,22 @@ frozen manifest hash validates; and every report states no held-out use. Copy ba
 `approach_selection.json`, the selected sensitivity JSON if one exists,
 `FROZEN_EXPERIMENT_MANIFEST.json`, and `reports/generated/handoff/prompt4_handoff.json`.
 Never copy summaries, sequence rows, private predictions, embeddings, model weights, or sentinels.
+
+## Job-502 M2 null-content recovery
+
+Preserve jobs 502, 504, and 505 and all of their files. M3 jobs 470/471 are canonical and must not
+be rerun. After the recovery commit is pulled into a clean DGX checkout and the four project/model/
+asset environment variables are exported, run:
+
+```bash
+bash scripts/slurm/submit_prompt4_m2_recovery.sh
+source outputs/private/prompt4_reference_job_ids.env
+bash scripts/slurm/prompt4_status.sh 502_0
+```
+
+The helper validates the unchanged job-502 RUNNING sentinel, audits old caches without printing
+patient content, validates all 16 M3 COMPLETE sentinels and 12 aggregate reports, proves the only
+experiment-config change is the hashed non-thinking control, and makes a live synthetic request
+before submitting M2. It writes new M2 job IDs while retaining 470/471 and their source commit in
+the canonical environment file. Require all four new summary and embedding tasks plus the review
+packet to be COMPLETE before manual fidelity review and `reference-finalize`.

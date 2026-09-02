@@ -112,6 +112,13 @@ if [[ "${REFERENCE_SOURCE_GIT_COMMIT}" != "${SOURCE_GIT_COMMIT}" ]]; then
   echo "Prompt 4 reference and finalize/sensitivity source commits must match." >&2
   exit 1
 fi
+if [[ "${STAGE}" == "reference-finalize" ]]; then
+  export PROMPT4_M3_EVIDENCE_SOURCE_GIT_COMMIT="${M3_EVIDENCE_SOURCE_GIT_COMMIT:-${SOURCE_GIT_COMMIT}}"
+  export PROMPT4_M2_RECOVERY_REPORT="${M2_RECOVERY_REPORT:-}"
+  export PROMPT4_M2_RECOVERY_REPORT_SHA256="${M2_RECOVERY_REPORT_SHA256:-}"
+else
+  export PROMPT4_M3_EVIDENCE_SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}"
+fi
 
 if [[ "${STAGE}" == "reference-finalize" ]]; then
   STATUS_IDS=("${M2_REVIEW_PREP_JOB_ID}")

@@ -128,6 +128,7 @@ def load_final_m23_authorization(
         or float(decoding.get("top_p", -1)) != 1.0
         or int(decoding.get("seed", -1)) != M3_SEEDS[0]
         or int(decoding.get("max_output_tokens", 0)) < 1
+        or decoding.get("chat_template_kwargs") != {"enable_thinking": False}
     ):
         raise ContractError("M2 decoding is not deterministically locked.")
     execution = m2.get("execution")

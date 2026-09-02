@@ -60,6 +60,9 @@ final_initialize() {
   fi
   final_container_python "${status_args[@]}"
   trap final_finalize EXIT
+  trap 'exit 143' TERM
+  trap 'exit 130' INT
+  trap 'exit 129' HUP
 }
 
 final_container_python() {
@@ -73,7 +76,7 @@ final_container_python() {
 
 final_finalize() {
   local exit_status=$?
-  trap - EXIT
+  trap - EXIT TERM INT HUP
   local final_state="FAILED"
   if [[ "${exit_status}" -eq 0 && "${FINAL_RUN_SUCCEEDED}" -eq 1 ]]; then
     final_state="COMPLETE"
@@ -82,10 +85,15 @@ final_finalize() {
   fi
   local ended_at
   ended_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  final_container_python "${PYTHON}" scripts/write_run_status.py "${final_state}" \
+  if ! final_container_python "${PYTHON}" scripts/write_run_status.py "${final_state}" \
     --status-dir "${FINAL_STATUS_DIR}" \
     --ended-at "${ended_at}" \
-    --exit-status "${exit_status}"
+    --exit-status "${exit_status}"; then
+    PYTHONPATH=src "${PYTHON}" scripts/write_run_status.py "${final_state}" \
+      --status-dir "${FINAL_STATUS_DIR}" \
+      --ended-at "${ended_at}" \
+      --exit-status "${exit_status}"
+  fi
   exit "${exit_status}"
 }
 

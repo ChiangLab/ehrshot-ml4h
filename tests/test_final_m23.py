@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,7 @@ import pytest
 from temporal_ehr.data.contracts import ContractError
 from temporal_ehr.experiments import FINAL_TASKS
 from temporal_ehr.final_m23.m2 import (
+    OnPremiseSummaryClient,
     SummaryCache,
     audit_summary_fidelity,
     build_manual_fidelity_packet,
@@ -31,7 +33,15 @@ from temporal_ehr.final_m23.protocol import (
     load_final_m23_authorization,
     require_prompt4_hard_gates,
 )
-from temporal_ehr.final_m23.reporting import _average_seed_predictions, select_approach
+from temporal_ehr.final_m23.recovery import (
+    _audit_invalid_cache_rows,
+    _validate_only_allowed_config_change,
+)
+from temporal_ehr.final_m23.reporting import (
+    _average_seed_predictions,
+    aggregate_m3_validation,
+    select_approach,
+)
 from temporal_ehr.serialization.integrity import stable_hash
 
 CONFIG = Path("configs/experiments/final_m2_m3.yaml")
@@ -50,6 +60,80 @@ def test_prompt4_hard_gate_uses_verified_job451_handoff_and_no_test() -> None:
     assert spec.tasks == FINAL_TASKS
     assert spec.splits == ("train", "validation")
     assert "test" not in spec.splits
+    assert spec.m2["decoding"]["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+class _SyntheticSummaryClient(OnPremiseSummaryClient):
+    def __init__(self, content: object) -> None:
+        super().__init__(api_base="http://10.45.177.17:8000/v1", model="synthetic")
+        self.content = content
+        self.payload: dict[str, object] | None = None
+
+    def _request(self, path: str, payload=None):  # type: ignore[no-untyped-def]
+        self.payload = dict(payload or {})
+        return {"choices": [{"message": {"content": self.content}}]}
+
+
+def test_m2_client_disables_thinking_and_rejects_null_like_content() -> None:
+    decoding = {
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "seed": 20260815,
+        "max_output_tokens": 100,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    client = _SyntheticSummaryClient("- [TIME=1_30_DAYS_BEFORE_T]: fact")
+    assert client.summarize(system_prompt="prompt", source_text="source", decoding=decoding)
+    assert client.payload is not None
+    assert client.payload["chat_template_kwargs"] == {"enable_thinking": False}
+    for invalid in (None, "None", " null ", ""):
+        with pytest.raises(RuntimeError, match=r"not text|null-like"):
+            _SyntheticSummaryClient(invalid).summarize(
+                system_prompt="prompt", source_text="source", decoding=decoding
+            )
+
+
+def test_m2_progress_logging_is_aggregate_only() -> None:
+    source = Path("src/temporal_ehr/final_m23/m2.py").read_text(encoding="utf-8")
+    assert '"event": "m2_summary_progress"' in source
+    assert '"completed_new_cache_rows"' in source
+    assert '"source_text"' not in source[source.index('"event": "m2_summary_progress"') :][:800]
+
+
+def test_prompt4_recovery_changes_only_nonthinking_decoding_control() -> None:
+    _validate_only_allowed_config_change(
+        Path.cwd(),
+        "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+        CONFIG,
+    )
+
+
+def test_recovery_cache_audit_is_aggregate_only_and_detects_null_rows(tmp_path: Path) -> None:
+    root = (
+        tmp_path
+        / "outputs/private/final/locked_four_task_m2_m3_v1/m2/summaries/lab_anemia/rows"
+    )
+    root.mkdir(parents=True)
+    (root / "invalid.json").write_text(json.dumps({"summary": "None"}), encoding="utf-8")
+    (root / "valid.json").write_text(json.dumps({"summary": "synthetic fact"}), encoding="utf-8")
+    result = _audit_invalid_cache_rows(tmp_path)
+    assert result == {
+        "rows_scanned": 2,
+        "invalid_rows": 1,
+        "nonempty_text_rows": 1,
+        "patient_content_included": False,
+    }
+
+
+def test_cross_commit_m3_reuse_requires_hashed_recovery_report() -> None:
+    with pytest.raises(ContractError, match="exact hashed recovery report"):
+        aggregate_m3_validation(
+            repository_root=Path.cwd(),
+            config_path=CONFIG,
+            stage="reference",
+            source_git_commit="b" * 40,
+            evidence_source_git_commit="a" * 40,
+        )
 
 
 @pytest.mark.parametrize(
@@ -132,6 +216,18 @@ def test_summary_cache_resumes_exact_rows_and_rejects_drift(tmp_path: Path) -> N
     assert cache.load(payload["cache_key"], expected) == payload
     with pytest.raises(ContractError, match="immutable inputs"):
         cache.load(payload["cache_key"], {**expected, "prompt_hash": "f" * 64})
+
+    for invalid in (None, "None", " null ", ""):
+        invalid_payload = {**payload, "cache_key": stable_hash(invalid), "summary": invalid}
+        invalid_payload["summary_hash"] = stable_hash(invalid)
+        path = cache.path(invalid_payload["cache_key"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(invalid_payload), encoding="utf-8")
+        with pytest.raises(ContractError, match="empty or hash-mismatched"):
+            cache.load(
+                invalid_payload["cache_key"],
+                {key: value for key, value in invalid_payload.items() if key != "summary"},
+            )
 
 
 def _fidelity_records(*, repair_one: bool = False) -> list[dict[str, object]]:
@@ -413,6 +509,35 @@ def test_prompt4_submission_splits_m3_preparation_from_parallel_seed_training() 
     assert '0-11%${M3_TRAIN_PARALLELISM}' in submit
     assert "PROMPT4_M3_TRAIN_PARALLELISM" in submit
     assert "SENSITIVITY_M3_PREP_ARRAY_JOB_ID" in submit
+
+
+def test_prompt4_m2_recovery_reruns_only_m2_and_reuses_canonical_m3() -> None:
+    source = Path("scripts/slurm/submit_prompt4_m2_recovery.sh").read_text(encoding="utf-8")
+    assert "validate_prompt4_m2_recovery.py" in source
+    assert "--live-endpoint-check" in source
+    assert "M3_PREP_ARRAY_JOB_ID=470" in source
+    assert "M3_ARRAY_JOB_ID=471" in source
+    assert "24_m2_summary_task_array.sbatch" in source
+    assert "24b_m2_embed_task_array.sbatch" in source
+    assert "25a_prepare_m2_fidelity_review.sbatch" in source
+    assert "26a_m3_prepare_task_array.sbatch" not in source
+    assert "26_m3_task_seed_array.sbatch" not in source
+
+
+def test_prompt4_m3_aggregate_supports_explicit_validated_compute_commit() -> None:
+    source = Path("src/temporal_ehr/final_m23/reporting.py").read_text(encoding="utf-8")
+    assert "evidence_source_git_commit" in source
+    assert '"m3_compute_git_commit": evidence_commit' in source
+    runner = Path("scripts/run_final_m23.py").read_text(encoding="utf-8")
+    assert "PROMPT4_M3_EVIDENCE_SOURCE_GIT_COMMIT" in runner
+
+
+def test_final_job_wrapper_attempts_atomic_status_on_signals_and_container_failure() -> None:
+    source = Path("scripts/slurm/final_job_common.sh").read_text(encoding="utf-8")
+    assert "trap 'exit 143' TERM" in source
+    assert "trap 'exit 130' INT" in source
+    assert "if ! final_container_python" in source
+    assert 'PYTHONPATH=src "${PYTHON}" scripts/write_run_status.py' in source
 
 
 def test_prompt4_status_helper_is_read_only_and_sentinel_aware() -> None:

@@ -51,6 +51,11 @@ def _environment_path(name: str) -> Path:
     return Path(value)
 
 
+def _optional_environment_path(name: str) -> Path | None:
+    value = os.environ.get(name)
+    return Path(value) if value else None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -142,6 +147,11 @@ def main() -> int:
             config_path=config_path,
             stage=args.stage,
             source_git_commit=_source_commit(),
+            evidence_source_git_commit=os.environ.get(
+                "PROMPT4_M3_EVIDENCE_SOURCE_GIT_COMMIT"
+            ),
+            recovery_report_path=_optional_environment_path("PROMPT4_M2_RECOVERY_REPORT"),
+            recovery_report_sha256=os.environ.get("PROMPT4_M2_RECOVERY_REPORT_SHA256"),
         )
     else:
         result = freeze_prompt4_manifest(

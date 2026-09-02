@@ -61,6 +61,12 @@ The first split-M3 submission at aligned commit `bd4ae35` also produced no scien
 preparation array 465 failed before container startup because script 26a omitted `CONTAINER_IMAGE`,
 and seed array 469 was dependency-blocked. Preserve those failures and use the tested wrapper hotfix
 before submitting replacement M3 preparation/training IDs.
+The corrected M3 reference compute is now complete at commit `1a97d8f`: preparation jobs 470_0
+through 470_3 and seed jobs 471_0 through 471_11 all have COMPLETE/exit-0 evidence. Preserve and
+reuse that exact M3 evidence. M2 summary job 502_0 was canceled after an aggregate-only audit found
+that most cached assistant contents were JSON null converted to literal `None`; it ended with only
+its original RUNNING sentinel. The active recovery disables Qwen thinking through a hashed decoding
+control, rejects non-text/empty/null-like responses, isolates old cache rows, and reruns M2 only.
 Do not run either real path locally or submit sensitivity before these gates pass.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in

@@ -151,3 +151,11 @@ Status date: 2026-09-01
   define the `CONTAINER_IMAGE` variable required by `final_job_common.sh`; dependent seed array 469
   became `DependencyNeverSatisfied`. No source reconstruction, embedding, fitting, or result ran.
   The pending hotfix defines the image and tests every common-wrapper Slurm script for that contract.
+- At commit `1a97d8f`, replacement M3 preparation 470_0-470_3 and seed training 471_0-471_11
+  completed with exit-0 sentinels and clean logs. These are the canonical M3 reference compute.
+  M2 job 502_0 was canceled after a privacy-safe audit found 1,286 null-like summaries among 1,294
+  cached rows. The endpoint itself passed the exact synthetic prompt when
+  `chat_template_kwargs.enable_thinking=false`; the defect was the client converting JSON null to
+  the literal string `None`. Job 502_0 has only its preserved RUNNING sentinel. The recovery source
+  makes non-thinking part of the decoding/cache hash, rejects non-text and null-like content, adds
+  a live synthetic preflight, and reuses verified M3 jobs 470/471 without rerunning them.

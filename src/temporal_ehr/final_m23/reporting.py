@@ -376,9 +376,35 @@ def aggregate_m3_validation(
     config_path: Path,
     stage: str,
     source_git_commit: str,
+    evidence_source_git_commit: str | None = None,
+    recovery_report_path: Path | None = None,
+    recovery_report_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Average three GRU seeds, report mean-pool baseline, and select after C1 references."""
     spec = load_final_m23_authorization(config_path, repository_root=repository_root)
+    evidence_commit = evidence_source_git_commit or source_git_commit
+    recovery_provenance = None
+    if evidence_commit != source_git_commit:
+        expected_root = spec.aggregate_root.resolve()
+        if (
+            stage != "reference"
+            or recovery_report_path is None
+            or not recovery_report_path.resolve().is_relative_to(expected_root)
+            or not recovery_report_path.is_file()
+            or recovery_report_sha256 is None
+            or file_sha256(recovery_report_path) != recovery_report_sha256
+        ):
+            raise ContractError("Cross-commit M3 reuse requires the exact hashed recovery report.")
+        recovery_provenance = json.loads(recovery_report_path.read_text(encoding="utf-8"))
+        if (
+            recovery_provenance.get("status") != "PASS"
+            or recovery_provenance.get("source_git_commit") != source_git_commit
+            or recovery_provenance.get("m3_compute_git_commit") != evidence_commit
+            or recovery_provenance.get("m3_rerun_required") is not False
+            or recovery_provenance.get("thinking_disabled") is not True
+            or recovery_provenance.get("test_predictions_or_performance_used") is not False
+        ):
+            raise ContractError("Cross-commit M3 recovery report provenance drifted.")
     stage_labels = (
         (str(spec.m3["reference_condition"]),)
         if stage == "reference"
@@ -402,7 +428,7 @@ def aggregate_m3_validation(
             task_seed_report = json.loads(task_seed_path.read_text(encoding="utf-8"))
             if (
                 task_seed_report.get("status") != "PASS"
-                or task_seed_report.get("source_git_commit") != source_git_commit
+                or task_seed_report.get("source_git_commit") != evidence_commit
                 or task_seed_report.get("task") != task
                 or task_seed_report.get("seed") != seed
                 or task_seed_report.get("stage") != stage
@@ -498,6 +524,11 @@ def aggregate_m3_validation(
         "protocol_decision": f"M3_{stage.upper()}_VALIDATION_COMPLETE_TEST_REMAINS_LOCKED",
         "experiment_id": spec.experiment_id,
         "source_git_commit": source_git_commit,
+        "m3_compute_git_commit": evidence_commit,
+        "validated_cross_commit_reuse": evidence_commit != source_git_commit,
+        "m3_recovery_report_sha256": (
+            recovery_report_sha256 if recovery_provenance is not None else None
+        ),
         "stage": stage,
         "approach": "M3 frozen per-window Qwen plus one-layer unidirectional GRU",
         "conditions": list(stage_labels),
