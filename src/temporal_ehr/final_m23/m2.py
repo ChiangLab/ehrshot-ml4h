@@ -12,6 +12,7 @@ import urllib.request
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -31,9 +32,11 @@ from temporal_ehr.serialization.integrity import stable_hash
 
 TIME_LABEL_RE = re.compile(r"\[TIME=\d+_\d+_DAYS_BEFORE_T\]")
 BRACKET_RE = re.compile(r"\[([^\]]+)\]")
-NUMBER_RE = re.compile(r"(?<![A-Za-z_])[-+]?\d+(?:\.\d+)?")
 UNIT_RE = re.compile(r"\bunit=([^|\n]+)")
-VALUE_RE = re.compile(r"value=([-+]?\d+(?:\.\d+)?)")
+VALUE_RE = re.compile(r"\bvalue=([-+]?\d+(?:\.\d+)?)")
+VALUES_RE = re.compile(r"\bvalues=([^|\n]+)")
+OCCURRENCES_RE = re.compile(r"\boccurrences=(\d+)")
+NUMBER_TOKEN_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
 TREND_WORDS = {"increasing", "decreasing", "stable"}
 NULL_LIKE_SUMMARIES = frozenset({"none", "null"})
 MANUAL_REVIEW_CRITERIA = (
@@ -46,6 +49,20 @@ MANUAL_REVIEW_CRITERIA = (
     "no_contradictions",
     "no_timing_repair",
 )
+
+
+@dataclass(frozen=True)
+class SummaryGeneration:
+    """Validated assistant text plus non-clinical completion provenance."""
+
+    summary: str
+    finish_reason: str
+    prompt_tokens: int | None
+    completion_tokens: int | None
+
+
+class NonRetryableSummaryError(RuntimeError):
+    """A deterministic response-contract failure that retries cannot repair."""
 
 
 def validate_on_premise_api_base(api_base: str) -> str:
@@ -93,19 +110,24 @@ class OnPremiseSummaryClient:
         record = next((item for item in models if isinstance(item, dict) and item.get("id") == self.model), None)
         if record is None:
             raise ContractError("The locked M2 instruction model is not served by the on-premise endpoint.")
+        # `created` is a vLLM process timestamp, not a model-weight revision. Including it caused
+        # identical named deployments to invalidate resumable caches after every service restart.
         stable_identity = {
-            field: record.get(field)
-            for field in ("id", "root", "parent", "owned_by", "max_model_len", "created")
+            "schema": "served_model_identity_v2",
+            **{
+                field: record.get(field)
+                for field in ("id", "root", "parent", "owned_by", "max_model_len")
+            },
         }
         return stable_hash(stable_identity)
 
-    def summarize(
+    def summarize_response(
         self,
         *,
         system_prompt: str,
         source_text: str,
         decoding: Mapping[str, Any],
-    ) -> str:
+    ) -> SummaryGeneration:
         payload = {
             "model": self.model,
             "messages": [
@@ -121,15 +143,48 @@ class OnPremiseSummaryClient:
         }
         result = self._request("chat/completions", payload)
         try:
-            content = result["choices"][0]["message"]["content"]
+            choice = result["choices"][0]
+            content = choice["message"]["content"]
+            finish_reason = choice["finish_reason"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise RuntimeError("On-premise summary response lacks assistant content.") from exc
+            raise NonRetryableSummaryError(
+                "On-premise summary response lacks assistant content or finish metadata."
+            ) from exc
         if not isinstance(content, str):
-            raise RuntimeError("On-premise summary response content was not text.")
+            raise NonRetryableSummaryError("On-premise summary response content was not text.")
         summary = content.strip()
         if not summary or summary.casefold() in NULL_LIKE_SUMMARIES:
-            raise RuntimeError("On-premise summary response was empty or null-like.")
-        return summary
+            raise NonRetryableSummaryError(
+                "On-premise summary response was empty or null-like."
+            )
+        if finish_reason != "stop":
+            raise NonRetryableSummaryError(
+                f"On-premise summary did not finish cleanly (finish_reason={finish_reason!r})."
+            )
+        usage = result.get("usage")
+        usage = usage if isinstance(usage, dict) else {}
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        return SummaryGeneration(
+            summary=summary,
+            finish_reason=finish_reason,
+            prompt_tokens=int(prompt_tokens) if isinstance(prompt_tokens, int) else None,
+            completion_tokens=int(completion_tokens) if isinstance(completion_tokens, int) else None,
+        )
+
+    def summarize(
+        self,
+        *,
+        system_prompt: str,
+        source_text: str,
+        decoding: Mapping[str, Any],
+    ) -> str:
+        """Compatibility wrapper for synthetic probes that need text only."""
+        return self.summarize_response(
+            system_prompt=system_prompt,
+            source_text=source_text,
+            decoding=decoding,
+        ).summary
 
 
 def summary_cache_key(
@@ -143,7 +198,7 @@ def summary_cache_key(
     """Hash every required M2 generation input; patient identity is not needed."""
     return stable_hash(
         {
-            "schema": "m2_summary_cache_v1",
+            "schema": "m2_summary_cache_v2_completion_bound",
             "source_hash": source_hash,
             "condition": condition,
             "prompt_hash": prompt_hash,
@@ -160,15 +215,17 @@ def _summarize_with_retries(
     source_text: str,
     decoding: Mapping[str, Any],
     retries: int,
-) -> str:
+) -> SummaryGeneration:
     """Retry transient private-endpoint failures without changing generation inputs."""
     for attempt in range(retries + 1):
         try:
-            return client.summarize(
+            return client.summarize_response(
                 system_prompt=system_prompt,
                 source_text=source_text,
                 decoding=decoding,
             )
+        except NonRetryableSummaryError:
+            raise
         except RuntimeError:
             if attempt == retries:
                 raise
@@ -212,8 +269,11 @@ class SummaryCache:
             or not summary.strip()
             or summary.strip().casefold() in NULL_LIKE_SUMMARIES
             or payload.get("summary_hash") != stable_hash(summary)
+            or payload.get("finish_reason") != "stop"
         ):
-            raise ContractError("Existing M2 summary cache row is empty or hash-mismatched.")
+            raise ContractError(
+                "Existing M2 summary cache row is empty, truncated, or hash-mismatched."
+            )
         return payload
 
     def store(self, cache_key: str, payload: Mapping[str, Any]) -> Path:
@@ -463,7 +523,7 @@ def run_m2_task(
 
         def generate(cache_key: str) -> tuple[str, dict[str, Any]]:
             source_text, expected = pending_by_key[cache_key]
-            summary = _summarize_with_retries(
+            generation = _summarize_with_retries(
                 summary_client,
                 system_prompt=prompt,
                 source_text=source_text,
@@ -472,8 +532,11 @@ def run_m2_task(
             )
             return cache_key, {
                 **expected,
-                "summary": summary,
-                "summary_hash": stable_hash(summary),
+                "summary": generation.summary,
+                "summary_hash": stable_hash(generation.summary),
+                "finish_reason": generation.finish_reason,
+                "prompt_tokens": generation.prompt_tokens,
+                "completion_tokens": generation.completion_tokens,
             }
 
         with ThreadPoolExecutor(max_workers=min(concurrent_requests, len(pending_by_key))) as executor:
@@ -565,7 +628,9 @@ def run_m2_task(
         "single_pass_nonrecursive": True,
         "instruction_model": str(spec.m2["instruction_model"]),
         "instruction_model_revision_hash": model_revision_hash,
-        "instruction_model_revision_kind": "served_endpoint_identity_including_created_timestamp",
+        "instruction_model_revision_kind": (
+            "stable_served_endpoint_identity_excluding_process_created_timestamp"
+        ),
         "on_premise_only": True,
         "external_api_used": False,
         "deterministic_decoding": True,
@@ -592,50 +657,84 @@ def run_m2_task(
     return report
 
 
+def _concepts_in_line(line: str) -> list[str]:
+    bracketed = [value for value in BRACKET_RE.findall(line) if not value.startswith("TIME=")]
+    if bracketed:
+        return list(dict.fromkeys(bracketed))
+    first_field = line.lstrip("-* ").split("|", maxsplit=1)[0].strip()
+    return [first_field] if "/" in first_field else []
+
+
+def _values_in_line(line: str) -> list[str]:
+    values = VALUE_RE.findall(line)
+    for field in VALUES_RE.findall(line):
+        values.extend(NUMBER_TOKEN_RE.findall(field))
+    return list(dict.fromkeys(values))
+
+
 def _feature_sets(text: str) -> dict[str, Any]:
-    concepts = [value for value in BRACKET_RE.findall(text) if not value.startswith("TIME=")]
-    numbers = NUMBER_RE.findall(text)
-    units = [value.strip() for value in UNIT_RE.findall(text)]
-    time_labels = TIME_LABEL_RE.findall(text)
-    lines = [line for line in text.splitlines() if line.startswith("-")]
-    event_concepts = [
-        value
-        for line in lines
-        for value in BRACKET_RE.findall(line)
-        if not value.startswith("TIME=")
-    ]
+    """Extract structured facts without treating code/time digits as clinical values."""
+    lines = [line.strip() for line in text.splitlines() if line.strip().startswith("-")]
+    concept_occurrences: Counter[str] = Counter()
+    concepts: set[str] = set()
+    numbers: set[str] = set()
+    units: set[str] = set()
     trends: set[str] = set()
     values_by_concept: defaultdict[str, list[float]] = defaultdict(list)
+    units_by_concept: defaultdict[str, set[str]] = defaultdict(set)
     facts_by_concept: defaultdict[str, set[tuple[str | None, str | None]]] = defaultdict(set)
     for line in lines:
-        codes = [value for value in BRACKET_RE.findall(line) if not value.startswith("TIME=")]
-        value = VALUE_RE.search(line)
-        unit = UNIT_RE.search(line)
-        if codes:
-            facts_by_concept[codes[-1]].add(
-                (
-                    value.group(1) if value else None,
-                    unit.group(1).strip() if unit else None,
-                )
-            )
-        if codes and value:
-            values_by_concept[codes[-1]].append(float(value.group(1)))
+        codes = _concepts_in_line(line)
+        values = _values_in_line(line)
+        unit_match = UNIT_RE.search(line)
+        unit = unit_match.group(1).strip() if unit_match else None
+        occurrence_match = OCCURRENCES_RE.search(line)
+        occurrences = int(occurrence_match.group(1)) if occurrence_match else 1
+        concepts.update(codes)
+        numbers.update(values)
+        if unit:
+            units.add(unit)
+        for code in codes:
+            concept_occurrences[code] += occurrences
+            if unit:
+                units_by_concept[code].add(unit)
+            if values:
+                for value in values:
+                    facts_by_concept[code].add((value, unit))
+                    values_by_concept[code].append(float(value))
+            else:
+                facts_by_concept[code].add((None, unit))
+        lowered = line.casefold()
+        trends.update(word for word in TREND_WORDS if word in lowered)
+    inferred_trends: set[str] = set()
     for values in values_by_concept.values():
         if len(values) >= 2:
             if values[-1] > values[0]:
-                trends.add("increasing")
+                inferred_trends.add("increasing")
             elif values[-1] < values[0]:
-                trends.add("decreasing")
+                inferred_trends.add("decreasing")
             else:
-                trends.add("stable")
+                inferred_trends.add("stable")
+    format_violations = sum(
+        bool(line.strip())
+        and line.strip() != "[NO_PRE_T_EVENTS]"
+        and TIME_LABEL_RE.fullmatch(line.strip()) is None
+        and not line.strip().startswith("-")
+        for line in text.splitlines()
+    )
     return {
-        "concepts": Counter(concepts),
-        "numbers": Counter(numbers),
-        "units": Counter(units),
-        "time_labels": Counter(time_labels),
-        "recurrence": Counter({key: count for key, count in Counter(event_concepts).items() if count > 1}),
-        "trends": trends,
+        "concepts": Counter({concept: 1 for concept in concepts}),
+        "numbers": Counter({number: 1 for number in numbers}),
+        "units": Counter({unit: 1 for unit in units}),
+        "time_labels": Counter(TIME_LABEL_RE.findall(text)),
+        "time_label_sequence": TIME_LABEL_RE.findall(text),
+        "recurrence": Counter(
+            {concept: count for concept, count in concept_occurrences.items() if count > 1}
+        ),
+        "trends": trends or inferred_trends,
         "facts_by_concept": facts_by_concept,
+        "units_by_concept": units_by_concept,
+        "format_violations": format_violations,
     }
 
 
@@ -784,6 +883,7 @@ def audit_summary_fidelity(
     unsupported = 0
     contradictions = 0
     timing_repairs = 0
+    format_violations = 0
     failures = 0
     ratios: list[float] = []
     for row in sample:
@@ -816,9 +916,14 @@ def audit_summary_fidelity(
             source_facts = source_features["facts_by_concept"].get(concept, set())
             if source_facts:
                 contradictions += len(summary_facts - source_facts)
+        for concept, count in summary_features["recurrence"].items():
+            source_count = source_features["recurrence"].get(concept)
+            if source_count is not None and count != source_count:
+                contradictions += 1
+        format_violations += int(summary_features["format_violations"])
         if "C3_shuffled" in str(row["condition"]):
-            source_labels = TIME_LABEL_RE.findall(source)
-            summary_labels = TIME_LABEL_RE.findall(summary)
+            source_labels = source_features["time_label_sequence"]
+            summary_labels = summary_features["time_label_sequence"]
             timing_repairs += int(summary_labels != source_labels)
     rates = {
         name: retained[name] / totals[name] if totals[name] else 1.0
@@ -838,6 +943,7 @@ def audit_summary_fidelity(
             unsupported_rate <= float(thresholds["maximum_unsupported_fact_rate"]),
             contradictions <= int(thresholds["maximum_contradictions"]),
             timing_repairs <= int(thresholds["maximum_timing_repairs"]),
+            format_violations <= int(thresholds["maximum_format_violations"]),
             failure_rate <= float(thresholds["maximum_generation_failure_rate"]),
         )
     )
@@ -851,6 +957,7 @@ def audit_summary_fidelity(
         "unsupported_fact_rate": unsupported_rate,
         "contradictions": contradictions,
         "falsified_timing_repairs": timing_repairs,
+        "structured_format_violations": format_violations,
         "compression_ratio": {
             "mean": float(np.mean(ratios)) if ratios else None,
             "minimum": float(np.min(ratios)) if ratios else None,

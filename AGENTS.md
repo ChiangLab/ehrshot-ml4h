@@ -65,8 +65,14 @@ The corrected M3 reference compute is now complete at commit `1a97d8f`: preparat
 through 470_3 and seed jobs 471_0 through 471_11 all have COMPLETE/exit-0 evidence. Preserve and
 reuse that exact M3 evidence. M2 summary job 502_0 was canceled after an aggregate-only audit found
 that most cached assistant contents were JSON null converted to literal `None`; it ended with only
-its original RUNNING sentinel. The active recovery disables Qwen thinking through a hashed decoding
-control, rejects non-text/empty/null-like responses, isolates old cache rows, and reruns M2 only.
+its original RUNNING sentinel. The first non-thinking recovery at commit `08a639b` produced valid
+non-null rows, including COMPLETE job 507_1, but governed validation inspection found a long summary
+that spent its output budget enumerating one repeated value, omitted other supplied facts, and added
+unsupported code names. Array 507 and task-0 recovery 513 were canceled on 2026-09-03; preserve all
+their logs, sentinels, and caches. The pending fidelity-v2 recovery requires compact structured
+output, exact code copying without expansion, `finish_reason=stop`, token metadata, plain-code-aware
+fidelity parsing, a restart-stable served-model identity, and a dense synthetic preflight. Its new
+prompt hash prevents every 502/507/513 row from satisfying the recovery cache.
 Do not run either real path locally or submit sensitivity before these gates pass.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in

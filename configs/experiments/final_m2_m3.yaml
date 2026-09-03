@@ -42,15 +42,19 @@ m2:
   api_base: http://10.45.177.17:8000/v1
   endpoint: /chat/completions
   on_premise_only: true
-  prompt_version: m2_fidelity_v1
+  prompt_version: m2_fidelity_v2_compact_structured
   prompt: >-
-    Summarize this ordered strictly pre-prediction record once. Preserve every supplied diagnosis,
-    procedure, medication, measurement, numeric value, unit, recurrence, direction of change, and
-    bracketed time label that is material to the record. Keep falsified time labels exactly as
-    supplied; do not correct or reinterpret them. Do not infer a diagnosis, causal relationship,
-    future event, outcome, or missing fact. Use only facts in the input. Keep each supplied
-    bracketed code, numeric value, and unit verbatim in a bulleted fact; explicitly state repeated
-    occurrences and increasing, decreasing, or stable numeric trends when directly supported.
+    Convert this ordered strictly pre-prediction record once into a compact structured summary.
+    Output only supplied bracketed time-label lines followed by dash-prefixed fact lines; do not
+    output headings, prose, explanations, or code definitions. Copy every clinical code exactly as
+    supplied and never translate, expand, rename, or interpret a code. Within each time block,
+    combine repetitions of the same code/source/unit into one fact, state occurrences=N, and list
+    each distinct supplied numeric value exactly once in first-occurrence order as values=V1,V2.
+    Preserve every supplied unit and nonnumeric value. State trend=increasing, trend=decreasing, or
+    trend=stable only when directly supported by the supplied ordered numeric values; otherwise
+    omit trend. Keep every supplied time label in exactly the supplied order, including falsified
+    labels; never correct or reinterpret one. Do not infer a diagnosis, concept name, causal
+    relationship, future event, outcome, or missing fact. Use only facts present in the input.
   decoding:
     temperature: 0.0
     top_p: 1.0
@@ -83,6 +87,7 @@ m2:
     maximum_unsupported_fact_rate: 0.01
     maximum_contradictions: 0
     maximum_timing_repairs: 0
+    maximum_format_violations: 0
     maximum_generation_failure_rate: 0.0
 
 m3:

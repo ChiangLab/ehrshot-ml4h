@@ -1,0 +1,26 @@
+version: 1
+mode: M2_FIDELITY_V2_RECOVERY
+experiment_id: locked_four_task_m2_m3_v1
+upstream_source_git_commit: 08a639b22b7cc916ec0f51faebe65a05a29de0ac
+upstream_experiment_config_sha256: 1c64b4a5e45e8a09d5ef17b6115d6dc28815485ce60f6a29eddbb218ead05145
+source_jobs:
+  superseded_m2_summary_array: 507
+  completed_reference_index: 1
+  canceled_task0_recovery: 513
+  m3_preparation:
+    job_id: 470
+    indices: [0, 1, 2, 3]
+  m3_seed_array:
+    job_id: 471
+    indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+controls:
+  preserve_superseded_jobs_and_caches: true
+  version_prompt_and_cache_identity: true
+  require_finish_reason_stop: true
+  record_token_usage: true
+  parse_plain_clinical_codes: true
+  reject_unstructured_expansion: true
+  stable_identity_excludes_service_start_timestamp: true
+  rerun_m2: true
+  rerun_m3: false
+  test_predictions_or_performance_used: false

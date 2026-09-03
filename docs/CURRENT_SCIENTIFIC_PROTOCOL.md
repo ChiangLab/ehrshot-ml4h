@@ -1,6 +1,6 @@
 # Current scientific protocol
 
-Status date: 2026-09-01. This is a concise operational index; the final August 14 protocol and
+Status date: 2026-09-03. This is a concise operational index; the final August 14 protocol and
 `PROTOCOL_DEVIATIONS.md` remain authoritative for detail and unresolved differences.
 
 ## Cohort and panel
@@ -64,6 +64,12 @@ Status date: 2026-09-01. This is a concise operational index; the final August 1
   them, and remain entirely on the authorized on-premise endpoint. Its primary source is the same
   content-matched 8,192-token retained history as M1. Eligibility requires both automated fidelity
   checks and manual review of the frozen 40-history validation sample.
+- M2 summaries must use the versioned compact structured format: exact supplied codes only, no
+  code-name expansion or headings, grouped recurrence counts, distinct supplied numeric values,
+  exact units, and unaltered time-label order. Only responses with API `finish_reason=stop` are
+  cache-eligible. The structured audit recognizes the plain `LOINC/...`, `SNOMED/...`, and similar
+  code form actually emitted by the locked serializer and does not count digits inside codes or
+  time labels as clinical numeric values.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus
   logistic regression is the required capacity comparator. The locked architecture uses at most 64
   recent nonempty windows, 512 tokens per window, hidden size 128, dropout 0.1, AdamW, and three

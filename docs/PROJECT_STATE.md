@@ -1,6 +1,6 @@
 # Project state
 
-Status date: 2026-09-01
+Status date: 2026-09-03
 
 ## Source state
 
@@ -159,3 +159,17 @@ Status date: 2026-09-01
   the literal string `None`. Job 502_0 has only its preserved RUNNING sentinel. The recovery source
   makes non-thinking part of the decoding/cache hash, rejects non-text and null-like content, adds
   a live synthetic preflight, and reuses verified M3 jobs 470/471 without rerunning them.
+- Commit `08a639b` supplied that non-thinking recovery. M2 job 507_1 completed all 2,533
+  readmission reference summaries with non-null content, but a governed validation-only spot check
+  exposed an output-limit failure mode: one summary enumerated a repeated measurement until its
+  ending, omitted other source facts, and added code-name interpretations absent from the source.
+  The prior automated audit also expected bracketed concepts although the serializer emits plain
+  clinical codes. Task-0 recovery 513 reused zero rows and generated only 500 of 4,088 after 3h37m,
+  making completion within 12 hours infeasible. Cancellation was requested for arrays 507 and 513
+  on 2026-09-03; their evidence remains superseded and must be preserved.
+- The pending fidelity-v2 source versions the M2 prompt/cache, requires compact structured facts
+  without code expansion, rejects every completion whose API finish reason is not `stop`, records
+  token counts, removes the vLLM process-start timestamp from the stable served-model identity, and
+  repairs fidelity extraction for plain clinical codes and explicit values/units/recurrence. A
+  dense synthetic live preflight must pass before any new M2 jobs are submitted. M1, canonical M3
+  jobs 470/471, and the held-out test lock are unchanged.

@@ -13,9 +13,14 @@ from typing import Any
 import yaml
 
 from temporal_ehr.data.contracts import ContractError, assert_privacy_safe_report
-from temporal_ehr.final_m23.m2 import NULL_LIKE_SUMMARIES, OnPremiseSummaryClient
+from temporal_ehr.final_m23.m2 import (
+    NULL_LIKE_SUMMARIES,
+    OnPremiseSummaryClient,
+    _feature_sets,
+)
 from temporal_ehr.final_m23.protocol import M3_SEEDS, load_final_m23_authorization
 from temporal_ehr.pilot.cache import atomic_json, file_sha256
+from temporal_ehr.serialization.integrity import stable_hash
 
 FULL_COMMIT = re.compile(r"[0-9a-f]{40}")
 
@@ -64,6 +69,40 @@ def _validate_only_allowed_config_change(
     kwargs = current.get("m2", {}).get("decoding", {}).pop("chat_template_kwargs", None)
     if kwargs != {"enable_thinking": False} or current != previous:
         raise ContractError("Recovery changed more than the locked M2 non-thinking decoding control.")
+
+
+def _validate_fidelity_v2_config_change(
+    root: Path,
+    old_commit: str,
+    config_path: Path,
+    expected_upstream_sha256: str,
+) -> None:
+    """Allow only the versioned M2 prompt/format gate after jobs 507/513."""
+    relative = config_path.resolve().relative_to(root.resolve()).as_posix()
+    previous_text = subprocess.run(
+        ["git", "show", f"{old_commit}:{relative}"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if hashlib.sha256(previous_text.encode("utf-8")).hexdigest() != expected_upstream_sha256:
+        raise ContractError("Upstream Prompt 4 fidelity-v2 configuration hash drifted.")
+    previous = yaml.safe_load(previous_text)
+    current = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    previous_m2 = previous["m2"]
+    current_m2 = current["m2"]
+    prompt_version = current_m2.get("prompt_version")
+    for field in ("prompt_version", "prompt"):
+        previous_m2.pop(field)
+        current_m2.pop(field)
+    previous_m2["fidelity"].pop("maximum_format_violations", None)
+    if (
+        current_m2["fidelity"].pop("maximum_format_violations", None) != 0
+        or prompt_version != "m2_fidelity_v2_compact_structured"
+        or current != previous
+    ):
+        raise ContractError("Fidelity-v2 recovery changed more than its authorized M2 controls.")
 
 
 def _validate_complete_status(root: Path, status_id: str, commit: str, run_kind: str) -> str:
@@ -231,6 +270,170 @@ def validate_prompt4_m2_recovery(
         "instruction_model_revision_hash": model_revision_hash,
         "m3_complete_sentinel_sha256": m3_status_hashes,
         "m3_task_report_sha256": m3_report_hashes,
+        "m3_rerun_required": False,
+        "test_predictions_or_performance_used": False,
+        "patient_content_included": False,
+    }
+    assert_privacy_safe_report(json.dumps(report, sort_keys=True))
+    return report
+
+
+def validate_prompt4_m2_fidelity_v2_recovery(
+    *,
+    repository_root: Path,
+    config_path: Path,
+    authorization_path: Path,
+    current_source_git_commit: str,
+    live_endpoint_check: bool,
+) -> dict[str, Any]:
+    """Gate the post-507/513 compact-summary recovery without exposing governed rows."""
+    root = repository_root.resolve()
+    if FULL_COMMIT.fullmatch(current_source_git_commit) is None:
+        raise ContractError("M2 fidelity-v2 recovery requires a full current Git commit.")
+    auth = _load_authorization(root, authorization_path)
+    old_commit = str(auth.get("upstream_source_git_commit", ""))
+    expected_controls = {
+        "preserve_superseded_jobs_and_caches": True,
+        "version_prompt_and_cache_identity": True,
+        "require_finish_reason_stop": True,
+        "record_token_usage": True,
+        "parse_plain_clinical_codes": True,
+        "reject_unstructured_expansion": True,
+        "stable_identity_excludes_service_start_timestamp": True,
+        "rerun_m2": True,
+        "rerun_m3": False,
+        "test_predictions_or_performance_used": False,
+    }
+    if (
+        auth.get("version") != 1
+        or auth.get("mode") != "M2_FIDELITY_V2_RECOVERY"
+        or auth.get("experiment_id") != "locked_four_task_m2_m3_v1"
+        or FULL_COMMIT.fullmatch(old_commit) is None
+        or current_source_git_commit == old_commit
+        or auth.get("controls") != expected_controls
+    ):
+        raise ContractError("Prompt 4 M2 fidelity-v2 recovery authorization drifted.")
+    spec = load_final_m23_authorization(config_path, repository_root=root)
+    _validate_fidelity_v2_config_change(
+        root,
+        old_commit,
+        config_path,
+        str(auth.get("upstream_experiment_config_sha256", "")),
+    )
+
+    source_jobs = auth.get("source_jobs")
+    if source_jobs != {
+        "superseded_m2_summary_array": 507,
+        "completed_reference_index": 1,
+        "canceled_task0_recovery": 513,
+        "m3_preparation": {"job_id": 470, "indices": [0, 1, 2, 3]},
+        "m3_seed_array": {"job_id": 471, "indices": list(range(12))},
+    }:
+        raise ContractError("Fidelity-v2 source-job authorization drifted.")
+    completed_507_1 = _validate_complete_status(
+        root,
+        "507_1",
+        old_commit,
+        "final_m2_summary_reference",
+    )
+    preserved_status_hashes: dict[str, dict[str, str]] = {}
+    for status_id in ("507_0", "507_1", "507_2", "507_3", "513_0"):
+        directory = root / "outputs/private/run_status" / status_id
+        hashes = {
+            path.name: file_sha256(path)
+            for path in directory.glob("*.json")
+            if path.name in {"RUNNING.json", "COMPLETE.json", "FAILED.json"}
+        }
+        if hashes:
+            preserved_status_hashes[status_id] = hashes
+
+    m3_status_hashes = {
+        f"470_{index}": _validate_complete_status(
+            root, f"470_{index}", "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913", "final_m3_prepare_reference"
+        )
+        for index in range(4)
+    }
+    m3_status_hashes.update(
+        {
+            f"471_{index}": _validate_complete_status(
+                root,
+                f"471_{index}",
+                "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+                "final_m3_task_seed_reference",
+            )
+            for index in range(12)
+        }
+    )
+
+    prompt_hash = stable_hash({"version": spec.m2["prompt_version"], "prompt": spec.m2["prompt"]})
+    legacy_rows = 0
+    current_rows = 0
+    for path in (spec.private_root / "m2" / "summaries").glob("*/rows/*.json"):
+        payload = _json_object(path, "M2 summary cache row")
+        if payload.get("prompt_hash") == prompt_hash:
+            current_rows += 1
+        else:
+            legacy_rows += 1
+    if legacy_rows < 1 or current_rows != 0:
+        raise ContractError("Fidelity-v2 preflight requires legacy evidence and an unused prompt hash.")
+
+    live_summary_hash = None
+    model_identity_hash = None
+    live_completion_tokens = None
+    if live_endpoint_check:
+        client = OnPremiseSummaryClient(
+            api_base=str(spec.m2["api_base"]), model=str(spec.m2["instruction_model"])
+        )
+        model_identity_hash = client.model_revision_hash()
+        repeated = "\n".join(
+            "- LOINC/SYNTHETIC-A | value=0.1 | unit=unit-A | source=measurement"
+            for _ in range(64)
+        )
+        source = (
+            "[TIME=31_60_DAYS_BEFORE_T]\n"
+            f"{repeated}\n"
+            "- CPT4/SYNTHETIC-B | source=procedure\n"
+            "[TIME=1_30_DAYS_BEFORE_T]\n"
+            "- SNOMED/SYNTHETIC-C | value=2 | unit=unit-C | source=measurement"
+        )
+        generation = client.summarize_response(
+            system_prompt=str(spec.m2["prompt"]),
+            source_text=source,
+            decoding=spec.m2["decoding"],
+        )
+        features = _feature_sets(generation.summary)
+        required_concepts = {"LOINC/SYNTHETIC-A", "CPT4/SYNTHETIC-B", "SNOMED/SYNTHETIC-C"}
+        if (
+            set(features["concepts"]) != required_concepts
+            or features["recurrence"].get("LOINC/SYNTHETIC-A") != 64
+            or features["time_label_sequence"]
+            != ["[TIME=31_60_DAYS_BEFORE_T]", "[TIME=1_30_DAYS_BEFORE_T]"]
+            or features["format_violations"] != 0
+            or "0.1" not in features["numbers"]
+            or "2" not in features["numbers"]
+            or set(features["units"]) != {"unit-A", "unit-C"}
+        ):
+            raise ContractError("Dense synthetic M2 summary failed compact structured fidelity.")
+        live_summary_hash = stable_hash(generation.summary)
+        live_completion_tokens = generation.completion_tokens
+
+    report = {
+        "status": "PASS",
+        "mode": "M2_FIDELITY_V2_RECOVERY",
+        "source_git_commit": current_source_git_commit,
+        "superseded_m2_git_commit": old_commit,
+        "m3_compute_git_commit": "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+        "completed_507_1_sentinel_sha256": completed_507_1,
+        "preserved_superseded_status_sha256": preserved_status_hashes,
+        "m3_complete_sentinel_sha256": m3_status_hashes,
+        "legacy_summary_cache_rows": legacy_rows,
+        "new_prompt_cache_rows_before_submission": current_rows,
+        "prompt_version": spec.m2["prompt_version"],
+        "finish_reason_stop_required": True,
+        "stable_served_model_identity_hash": model_identity_hash,
+        "live_dense_synthetic_check_passed": live_endpoint_check,
+        "live_dense_synthetic_summary_sha256": live_summary_hash,
+        "live_dense_synthetic_completion_tokens": live_completion_tokens,
         "m3_rerun_required": False,
         "test_predictions_or_performance_used": False,
         "patient_content_included": False,

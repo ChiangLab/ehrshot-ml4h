@@ -934,3 +934,57 @@ experiment-config change is the hashed non-thinking control, and makes a live sy
 before submitting M2. It writes new M2 job IDs while retaining 470/471 and their source commit in
 the canonical environment file. Require all four new summary and embedding tasks plus the review
 packet to be COMPLETE before manual fidelity review and `reference-finalize`.
+
+## Post-507/513 M2 compact-fidelity recovery
+
+The job-502 recovery instructions above are historical after commit `08a639b`. Job 507_1 completed
+non-null summaries, but validation-only inspection exposed repetition-driven output exhaustion,
+omitted facts, and unsupported code-name expansion. Task-0 recovery 513 reused no rows and projected
+beyond the 12-hour limit. Jobs 507 and 513 were therefore canceled; preserve their caches, logs, and
+sentinels and never use them as final M2 evidence. Verify cancellation before pulling new source:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+squeue -j 507,513 -o "%.18i %.12P %.30j %.2t %.10M %.10l %R"
+```
+
+An empty job listing means scheduler termination, not scientific success. After the fidelity-v2
+source is committed and pushed, load the GitHub key if necessary, fast-forward the clean DGX
+checkout, and restore the required environment:
+
+```bash
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519_github_dgx
+git pull --ff-only origin main
+git status --short --branch
+
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
+export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
+```
+
+Submit only through the fidelity-v2 helper:
+
+```bash
+export PROMPT4_M2_SUMMARY_PARALLELISM=2
+export PROMPT4_M2_EMBED_PARALLELISM=1
+bash scripts/slurm/submit_prompt4_m2_fidelity_v2.sh
+source outputs/private/prompt4_reference_job_ids.env
+squeue -j "${M2_ARRAY_JOB_ID},${M2_EMBED_ARRAY_JOB_ID},${M2_REVIEW_PREP_JOB_ID}" \
+  -o "%.18i %.12P %.30j %.2t %.10M %.10l %R"
+```
+
+Before `sbatch`, the helper runs a containerized, synthetic-only live test containing 64 repeated
+measurements and two additional concepts. It refuses submission unless Qwen returns all exact codes,
+values, units, time labels, an exact recurrence count, structured-only output, and
+`finish_reason=stop`. The new prompt hash and mandatory completion metadata prevent all legacy
+502/507/513 rows from satisfying cache keys. The served-model identity excludes vLLM's process-start
+timestamp so a service restart alone no longer defeats resume; the locked model ID/root and other
+stable served fields remain hashed. M3 jobs 470/471 are reused and never resubmitted.
+
+After all new M2 jobs leave the queue, require four summary COMPLETE sentinels, four embedding
+COMPLETE sentinels, and the review-packet COMPLETE sentinel before opening the governed packet. If
+the dense synthetic preflight or any frozen 40-history criterion fails, stop M2 and retain M1/M3 as
+the eligible approaches. Do not change the prompt again using the frozen review and do not access
+held-out test data.

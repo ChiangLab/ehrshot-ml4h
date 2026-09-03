@@ -12,6 +12,7 @@ from temporal_ehr.experiments import FINAL_TASKS
 from temporal_ehr.final_m23.m2 import (
     OnPremiseSummaryClient,
     SummaryCache,
+    _summarize_with_retries,
     audit_summary_fidelity,
     build_manual_fidelity_packet,
     m2_embedding_root,
@@ -35,6 +36,7 @@ from temporal_ehr.final_m23.protocol import (
 )
 from temporal_ehr.final_m23.recovery import (
     _audit_invalid_cache_rows,
+    _validate_fidelity_v2_config_change,
     _validate_only_allowed_config_change,
 )
 from temporal_ehr.final_m23.reporting import (
@@ -61,6 +63,7 @@ def test_prompt4_hard_gate_uses_verified_job451_handoff_and_no_test() -> None:
     assert spec.splits == ("train", "validation")
     assert "test" not in spec.splits
     assert spec.m2["decoding"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert spec.m2["prompt_version"] == "m2_fidelity_v2_compact_structured"
 
 
 class _SyntheticSummaryClient(OnPremiseSummaryClient):
@@ -71,7 +74,10 @@ class _SyntheticSummaryClient(OnPremiseSummaryClient):
 
     def _request(self, path: str, payload=None):  # type: ignore[no-untyped-def]
         self.payload = dict(payload or {})
-        return {"choices": [{"message": {"content": self.content}}]}
+        return {
+            "choices": [{"message": {"content": self.content}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 12},
+        }
 
 
 def test_m2_client_disables_thinking_and_rejects_null_like_content() -> None:
@@ -93,6 +99,67 @@ def test_m2_client_disables_thinking_and_rejects_null_like_content() -> None:
             )
 
 
+def test_m2_client_rejects_length_truncated_completion() -> None:
+    client = _SyntheticSummaryClient("- CODE/A | occurrences=1")
+    client._request = lambda path, payload=None: {  # type: ignore[method-assign]
+        "choices": [{"message": {"content": client.content}, "finish_reason": "length"}]
+    }
+    with pytest.raises(RuntimeError, match="finish_reason='length'"):
+        client.summarize(
+            system_prompt="prompt",
+            source_text="source",
+            decoding={
+                "temperature": 0.0,
+                "top_p": 1.0,
+                "seed": 20260815,
+                "max_output_tokens": 100,
+                "chat_template_kwargs": {"enable_thinking": False},
+            },
+        )
+
+
+def test_m2_does_not_retry_deterministic_length_failure() -> None:
+    client = _SyntheticSummaryClient("truncated")
+    calls = 0
+
+    def response(path, payload=None):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return {"choices": [{"message": {"content": "truncated"}, "finish_reason": "length"}]}
+
+    client._request = response  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="finish_reason='length'"):
+        _summarize_with_retries(
+            client,
+            system_prompt="prompt",
+            source_text="source",
+            decoding={
+                "temperature": 0.0,
+                "top_p": 1.0,
+                "seed": 20260815,
+                "max_output_tokens": 100,
+                "chat_template_kwargs": {"enable_thinking": False},
+            },
+            retries=3,
+        )
+    assert calls == 1
+
+
+def test_m2_served_identity_ignores_vllm_process_timestamp() -> None:
+    first = _SyntheticSummaryClient("unused")
+    second = _SyntheticSummaryClient("unused")
+    base = {
+        "id": "synthetic",
+        "root": "synthetic",
+        "parent": None,
+        "owned_by": "vllm",
+        "max_model_len": 8192,
+    }
+    first._request = lambda path, payload=None: {"data": [{**base, "created": 1}]}  # type: ignore[method-assign]
+    second._request = lambda path, payload=None: {"data": [{**base, "created": 2}]}  # type: ignore[method-assign]
+    assert first.model_revision_hash() == second.model_revision_hash()
+
+
 def test_m2_progress_logging_is_aggregate_only() -> None:
     source = Path("src/temporal_ehr/final_m23/m2.py").read_text(encoding="utf-8")
     assert '"event": "m2_summary_progress"' in source
@@ -101,10 +168,20 @@ def test_m2_progress_logging_is_aggregate_only() -> None:
 
 
 def test_prompt4_recovery_changes_only_nonthinking_decoding_control() -> None:
-    _validate_only_allowed_config_change(
+    with pytest.raises(ContractError, match="more than"):
+        _validate_only_allowed_config_change(
+            Path.cwd(),
+            "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+            CONFIG,
+        )
+
+
+def test_prompt4_fidelity_v2_changes_only_authorized_m2_controls() -> None:
+    _validate_fidelity_v2_config_change(
         Path.cwd(),
-        "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+        "08a639b22b7cc916ec0f51faebe65a05a29de0ac",
         CONFIG,
+        "1c64b4a5e45e8a09d5ef17b6115d6dc28815485ce60f6a29eddbb218ead05145",
     )
 
 
@@ -209,6 +286,9 @@ def test_summary_cache_resumes_exact_rows_and_rejects_drift(tmp_path: Path) -> N
         "model_revision_hash": "d" * 64,
         "decoding_hash": "e" * 64,
         "summary": "[TIME=1_30_DAYS_BEFORE_T]\n- Hemoglobin [LOINC/718-7] | value=10 | unit=g/dL",
+        "finish_reason": "stop",
+        "prompt_tokens": 20,
+        "completion_tokens": 10,
     }
     payload["summary_hash"] = stable_hash(payload["summary"])
     cache.store(payload["cache_key"], payload)
@@ -223,11 +303,20 @@ def test_summary_cache_resumes_exact_rows_and_rejects_drift(tmp_path: Path) -> N
         path = cache.path(invalid_payload["cache_key"])
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(invalid_payload), encoding="utf-8")
-        with pytest.raises(ContractError, match="empty or hash-mismatched"):
+        with pytest.raises(ContractError, match="empty, truncated, or hash-mismatched"):
             cache.load(
                 invalid_payload["cache_key"],
                 {key: value for key, value in invalid_payload.items() if key != "summary"},
             )
+    missing_finish = {key: value for key, value in payload.items() if key != "finish_reason"}
+    missing_finish["cache_key"] = "f" * 64
+    path = cache.path(missing_finish["cache_key"])
+    path.write_text(json.dumps(missing_finish), encoding="utf-8")
+    with pytest.raises(ContractError, match="truncated"):
+        cache.load(
+            missing_finish["cache_key"],
+            {key: value for key, value in missing_finish.items() if key != "summary"},
+        )
 
 
 def _fidelity_records(*, repair_one: bool = False) -> list[dict[str, object]]:
@@ -246,7 +335,12 @@ def _fidelity_records(*, repair_one: bool = False) -> list[dict[str, object]]:
                     "[TIME=1_30_DAYS_BEFORE_T]\n"
                     "- Hemoglobin [LOINC/718-7] | value=11 | unit=g/dL"
                 )
-                summary = source + "\nHemoglobin is increasing with recurrence."
+                summary = (
+                    "[TIME=31_60_DAYS_BEFORE_T]\n"
+                    "- LOINC/718-7 | values=10 | unit=g/dL | occurrences=1\n"
+                    "[TIME=1_30_DAYS_BEFORE_T]\n"
+                    "- LOINC/718-7 | values=11 | unit=g/dL | occurrences=1 | trend=increasing"
+                )
                 if repair_one and task == tasks[0] and "C3_" in condition and index == 0:
                     summary = summary.replace("[TIME=31_60_DAYS_BEFORE_T]", "[TIME=61_90_DAYS_BEFORE_T]")
                 records.append(
@@ -273,6 +367,7 @@ def _fidelity_thresholds() -> dict[str, float | int]:
         "maximum_unsupported_fact_rate": 0.01,
         "maximum_contradictions": 0,
         "maximum_timing_repairs": 0,
+        "maximum_format_violations": 0,
         "maximum_generation_failure_rate": 0.0,
     }
 
@@ -301,7 +396,7 @@ def test_m2_fidelity_rejects_repaired_falsified_time() -> None:
 
 def test_m2_fidelity_reports_structured_fact_contradictions() -> None:
     records = _fidelity_records()
-    records[0]["summary"] = str(records[0]["summary"]).replace("value=10", "value=99", 1)
+    records[0]["summary"] = str(records[0]["summary"]).replace("values=10", "values=99", 1)
     report = audit_summary_fidelity(
         records,
         thresholds=_fidelity_thresholds(),
@@ -309,6 +404,47 @@ def test_m2_fidelity_reports_structured_fact_contradictions() -> None:
     )
     assert report["status"] == "FAIL"
     assert report["contradictions"] >= 1
+
+
+def test_m2_fidelity_parses_plain_codes_and_rejects_code_expansion_prose() -> None:
+    records = _fidelity_records()
+    records[0]["source_text"] = (
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- LOINC/60804-2 | value=0.1 | source=measurement\n"
+        "- LOINC/60804-2 | value=0.1 | source=measurement\n"
+        "- CPT4/82728 | source=measurement"
+    )
+    records[0]["summary"] = (
+        "Respiratory Mechanics\n"
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- LOINC/60804-2 (Static Compliance) | values=0.1 | "
+        "source=measurement | occurrences=2"
+    )
+    report = audit_summary_fidelity(
+        records,
+        thresholds=_fidelity_thresholds(),
+        histories_per_task_condition=5,
+    )
+    assert report["status"] == "FAIL"
+    assert report["retention"]["concepts"] < 1.0
+    assert report["structured_format_violations"] >= 1
+
+
+def test_m2_fidelity_preserves_plain_codes_containing_spaces() -> None:
+    records = _fidelity_records()
+    records[0]["source_text"] = (
+        "[TIME=1_30_DAYS_BEFORE_T]\n- Ethnicity/Not Hispanic | source=person"
+    )
+    records[0]["summary"] = (
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- Ethnicity/Not Hispanic | source=person | occurrences=1"
+    )
+    report = audit_summary_fidelity(
+        records,
+        thresholds=_fidelity_thresholds(),
+        histories_per_task_condition=5,
+    )
+    assert report["retention"]["concepts"] == 1.0
 
 
 def test_m2_manual_fidelity_requires_all_40_explicit_reviews() -> None:
@@ -520,6 +656,21 @@ def test_prompt4_m2_recovery_reruns_only_m2_and_reuses_canonical_m3() -> None:
     assert "24_m2_summary_task_array.sbatch" in source
     assert "24b_m2_embed_task_array.sbatch" in source
     assert "25a_prepare_m2_fidelity_review.sbatch" in source
+    assert "26a_m3_prepare_task_array.sbatch" not in source
+    assert "26_m3_task_seed_array.sbatch" not in source
+
+
+def test_prompt4_m2_fidelity_v2_recovery_is_fail_closed_and_reuses_m3() -> None:
+    source = Path("scripts/slurm/submit_prompt4_m2_fidelity_v2.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "validate_prompt4_m2_fidelity_v2_recovery.py" in source
+    assert "--live-endpoint-check" in source
+    assert "24_m2_summary_task_array.sbatch" in source
+    assert "24b_m2_embed_task_array.sbatch" in source
+    assert "25a_prepare_m2_fidelity_review.sbatch" in source
+    assert "M3_PREP_ARRAY_JOB_ID=470" in source
+    assert "M3_ARRAY_JOB_ID=471" in source
     assert "26a_m3_prepare_task_array.sbatch" not in source
     assert "26_m3_task_seed_array.sbatch" not in source
 

@@ -1,6 +1,6 @@
 # Decision log
 
-Status date: 2026-09-01. Open scientific deviations are tracked in greater detail in
+Status date: 2026-09-03. Open scientific deviations are tracked in greater detail in
 `PROTOCOL_DEVIATIONS.md`.
 
 | ID | Decision | Status | Evidence or next gate |
@@ -27,3 +27,4 @@ Status date: 2026-09-01. Open scientific deviations are tracked in greater detai
 | DEC-020 | Define primary M2 as compression of the same content-matched 8,192-token clinical source retained for M1. | PROPOSED FOR JEFF CONFIRMATION; SOURCE IMPLEMENTED | This controls clinical evidence across M1/M2 and protects the deadline; it does not claim that M2 expands history coverage. |
 | DEC-021 | Separate seed-independent M3 window preparation from seed training and tune only Slurm concurrency from synthetic capacity evidence. | SOURCE IMPLEMENTED; DGX CAPACITY PENDING | One preparation pass per task/stage feeds all three immutable seeds; projection-before-padding reduces memory, and concurrent GRU jobs do not alter inputs, architecture, seeds, or metrics. |
 | DEC-022 | Require request-level non-thinking M2 generation, reject null-like assistant content, and recover by rerunning M2 while reusing only cryptographically validated M3 jobs 470/471. | SOURCE IMPLEMENTED; DGX RECOVERY PENDING | Exact synthetic prompting returned all required fields with thinking disabled; the changed decoding hash prevents job-502 rows from satisfying recovery keys. |
+| DEC-023 | Version M2 as compact structured summarization after validation-only inspection exposed repetition-driven output exhaustion and unsupported code expansion. | SOURCE IMPLEMENTED; DGX PREFLIGHT PENDING | Exact codes may not be translated; recurrence is grouped; only `finish_reason=stop` is eligible; token usage is recorded; plain-code fidelity parsing and a dense synthetic live gate precede the rerun. Jobs 507/513 remain superseded evidence, and M3 470/471 is reused unchanged. |
