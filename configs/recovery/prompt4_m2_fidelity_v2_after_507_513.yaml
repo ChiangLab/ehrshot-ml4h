@@ -1,8 +1,14 @@
-version: 1
+version: 2
 mode: M2_FIDELITY_V2_RECOVERY
 experiment_id: locked_four_task_m2_m3_v1
 upstream_source_git_commit: 08a639b22b7cc916ec0f51faebe65a05a29de0ac
 upstream_experiment_config_sha256: 1c64b4a5e45e8a09d5ef17b6115d6dc28815485ce60f6a29eddbb218ead05145
+failed_preflight:
+  source_git_commit: f25080d69c01b840522fa83b27004a2879c8d697
+  governed_jobs_submitted: false
+  recovery_report_written: false
+  synthetic_requested_occurrences: 64
+  synthetic_observed_incorrect_occurrences: 65
 source_jobs:
   superseded_m2_summary_array: 507
   completed_reference_index: 1
@@ -21,6 +27,9 @@ controls:
   parse_plain_clinical_codes: true
   reject_unstructured_expansion: true
   stable_identity_excludes_service_start_timestamp: true
+  deterministic_exact_repeat_precompaction: true
+  source_compaction_in_cache_identity: true
+  consecutive_dense_synthetic_checks: 3
   rerun_m2: true
   rerun_m3: false
   test_predictions_or_performance_used: false

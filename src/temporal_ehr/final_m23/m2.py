@@ -39,6 +39,7 @@ OCCURRENCES_RE = re.compile(r"\boccurrences=(\d+)")
 NUMBER_TOKEN_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
 TREND_WORDS = {"increasing", "decreasing", "stable"}
 NULL_LIKE_SUMMARIES = frozenset({"none", "null"})
+M2_SOURCE_COMPACTION_SCHEMA = "m2_exact_duplicate_facts_v1"
 MANUAL_REVIEW_CRITERIA = (
     "concepts_preserved",
     "numeric_values_preserved",
@@ -198,7 +199,7 @@ def summary_cache_key(
     """Hash every required M2 generation input; patient identity is not needed."""
     return stable_hash(
         {
-            "schema": "m2_summary_cache_v2_completion_bound",
+            "schema": "m2_summary_cache_v3_precompacted_completion_bound",
             "source_hash": source_hash,
             "condition": condition,
             "prompt_hash": prompt_hash,
@@ -233,6 +234,49 @@ def _summarize_with_retries(
     raise AssertionError("unreachable")
 
 
+def compact_exact_duplicate_facts(source_text: str) -> str:
+    """Collapse exact repeated fact lines within each window using deterministic counts.
+
+    The serialized history does not expose event timestamps within a window. Removing repeated
+    copies of the exact same rendered fact therefore loses no available order information, while
+    the explicit count retains recurrence and avoids asking the instruction model to count a long
+    run of identical tokens.
+    """
+    output: list[str] = []
+    facts: list[str] = []
+
+    def flush_facts() -> None:
+        counts = Counter(facts)
+        emitted: set[str] = set()
+        for fact in facts:
+            if fact in emitted:
+                continue
+            emitted.add(fact)
+            count = counts[fact]
+            if count > 1:
+                if OCCURRENCES_RE.search(fact):
+                    raise ContractError("M2 source fact already contains a recurrence count.")
+                output.append(f"{fact} | occurrences={count}")
+            else:
+                output.append(fact)
+        facts.clear()
+
+    for raw_line in source_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("-"):
+            facts.append(line)
+            continue
+        flush_facts()
+        output.append(line)
+    flush_facts()
+    compacted = "\n".join(output)
+    if not compacted:
+        raise ContractError("M2 deterministic source compaction produced empty text.")
+    return compacted
+
+
 def m2_source_text(prepared_text: str, instruction: str) -> str:
     """Remove M1's prediction instruction and retain only ordered observation windows."""
     prefix = instruction.strip()
@@ -244,7 +288,7 @@ def m2_source_text(prepared_text: str, instruction: str) -> str:
     source = prepared_text[len(expected) :].strip()
     if not source or "[" not in source:
         raise ContractError("M2 source contains no serialized observation window.")
-    return source
+    return compact_exact_duplicate_facts(source)
 
 
 class SummaryCache:
@@ -494,7 +538,9 @@ def run_m2_task(
     for row in rows:
         label = condition_label(row)
         source_text = m2_source_text(str(row["text"]), m1.instructions[task])
-        source_hash = stable_hash(source_text)
+        source_hash = stable_hash(
+            {"schema": M2_SOURCE_COMPACTION_SCHEMA, "source_text": source_text}
+        )
         key = summary_cache_key(
             source_hash=source_hash,
             condition=label,
@@ -509,6 +555,7 @@ def run_m2_task(
             "prompt_hash": prompt_hash,
             "model_revision_hash": model_revision_hash,
             "decoding_hash": decoding_hash,
+            "source_compaction_schema": M2_SOURCE_COMPACTION_SCHEMA,
         }
         if key not in payloads_by_key and key not in pending_by_key:
             payload = cache.load(key, expected)
@@ -616,6 +663,7 @@ def run_m2_task(
         "summary_cache_rows_reused": reused,
         "summary_rows_generated_this_attempt": len(pending_by_key),
         "source_history_policy": str(spec.m2["source_history_policy"]),
+        "source_compaction_schema": M2_SOURCE_COMPACTION_SCHEMA,
         "concurrent_summary_requests": concurrent_requests,
         "request_retries": request_retries,
         "summary_cache_key_fields": [

@@ -13,7 +13,13 @@ repetition-driven output exhaustion, omitted facts, and unsupported code-name ex
 reused zero rows and could not finish its 4,088 requests inside 12 hours. Cancellation was requested
 for 507 and 513 on 2026-09-03; verify that both have left `squeue` before pulling new source.
 
-The pending fidelity-v2 hotfix uses a new prompt/cache identity, compact structured output, exact
+Commit `f25080d` reached the synthetic-only fidelity-v2 preflight but submitted no jobs: Qwen
+intermittently counted 64 identical synthetic facts as 65. Do not rerun that commit until the
+pending source is committed and pulled. It deterministically collapses exact duplicates within
+each unchanged window, supplies the exact recurrence count before Qwen, binds the transform into a
+new cache schema, and requires three consecutive dense synthetic passes.
+
+The fidelity-v2 recovery also uses a new prompt/cache identity, compact structured output, exact
 unexpanded codes, explicit recurrence, API `finish_reason=stop`, token metadata, restart-stable
 served-model identity, and plain-code-aware fidelity parsing. Validate, commit, and push it; pull it
 into a clean DGX checkout; export the four project/model/data variables; then run:
@@ -25,7 +31,7 @@ squeue -j "${M2_ARRAY_JOB_ID},${M2_EMBED_ARRAY_JOB_ID},${M2_REVIEW_PREP_JOB_ID}"
   -o "%.18i %.12P %.30j %.2t %.10M %.10l %R"
 ```
 
-The helper must first pass its dense synthetic live summary gate. It then reruns only M2 and records
+The helper must first pass its repeated dense synthetic live summary gate. It then reruns only M2 and records
 new job IDs while retaining M3 470/471. Do not use any 502/507/513 cache row, submit sensitivity, or
 access test data. After the new M2 summary/embedding tasks and review-packet job all have
 COMPLETE/exit-0 evidence, perform the governed 40-item manual review on DGX. A failed fidelity gate

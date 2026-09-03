@@ -10,11 +10,13 @@ import pytest
 from temporal_ehr.data.contracts import ContractError
 from temporal_ehr.experiments import FINAL_TASKS
 from temporal_ehr.final_m23.m2 import (
+    M2_SOURCE_COMPACTION_SCHEMA,
     OnPremiseSummaryClient,
     SummaryCache,
     _summarize_with_retries,
     audit_summary_fidelity,
     build_manual_fidelity_packet,
+    compact_exact_duplicate_facts,
     m2_embedding_root,
     m2_source_text,
     summary_cache_key,
@@ -274,6 +276,36 @@ def test_m2_receives_observation_windows_without_m1_prediction_instruction() -> 
     assert m2_source_text(instruction, instruction) == "[NO_PRE_T_EVENTS]"
     with pytest.raises(ContractError, match="locked task instruction"):
         m2_source_text(prepared, "different instruction")
+
+
+def test_m2_deterministically_compacts_exact_repeats_within_each_window() -> None:
+    source = (
+        "[TIME=31_60_DAYS_BEFORE_T]\n"
+        "- LOINC/X | value=0.1 | unit=g/dL | source=measurement\n"
+        "- LOINC/X | value=0.1 | unit=g/dL | source=measurement\n"
+        "- LOINC/X | value=0.2 | unit=g/dL | source=measurement\n"
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- LOINC/X | value=0.1 | unit=g/dL | source=measurement\n"
+        "- LOINC/X | value=0.1 | unit=g/dL | source=measurement"
+    )
+    assert compact_exact_duplicate_facts(source) == (
+        "[TIME=31_60_DAYS_BEFORE_T]\n"
+        "- LOINC/X | value=0.1 | unit=g/dL | source=measurement | occurrences=2\n"
+        "- LOINC/X | value=0.2 | unit=g/dL | source=measurement\n"
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- LOINC/X | value=0.1 | unit=g/dL | source=measurement | occurrences=2"
+    )
+
+
+def test_m2_source_compaction_is_versioned_and_rejects_double_counting() -> None:
+    assert M2_SOURCE_COMPACTION_SCHEMA == "m2_exact_duplicate_facts_v1"
+    source = (
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- LOINC/X | value=1 | occurrences=2\n"
+        "- LOINC/X | value=1 | occurrences=2"
+    )
+    with pytest.raises(ContractError, match="already contains"):
+        compact_exact_duplicate_facts(source)
 
 
 def test_summary_cache_resumes_exact_rows_and_rejects_drift(tmp_path: Path) -> None:
@@ -673,6 +705,9 @@ def test_prompt4_m2_fidelity_v2_recovery_is_fail_closed_and_reuses_m3() -> None:
     assert "M3_ARRAY_JOB_ID=471" in source
     assert "26a_m3_prepare_task_array.sbatch" not in source
     assert "26_m3_task_seed_array.sbatch" not in source
+    recovery = Path("src/temporal_ehr/final_m23/recovery.py").read_text(encoding="utf-8")
+    assert "compact_exact_duplicate_facts(uncompressed_source)" in recovery
+    assert "for attempt in range(3)" in recovery
 
 
 def test_prompt4_m3_aggregate_supports_explicit_validated_compute_commit() -> None:

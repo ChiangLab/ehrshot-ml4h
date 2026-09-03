@@ -983,6 +983,12 @@ values, units, time labels, an exact recurrence count, structured-only output, a
 timestamp so a service restart alone no longer defeats resume; the locked model ID/root and other
 stable served fields remain hashed. M3 jobs 470/471 are reused and never resubmitted.
 
+Commit `f25080d` stopped at this preflight because Qwen intermittently counted the 64 identical
+rows as 65; no jobs were submitted and no recovery report was written. The successor source must
+first collapse exact duplicate fact lines within each window in deterministic Python, supply
+`occurrences=64` to Qwen, bind the transform to the cache schema, and pass the dense live case three
+times consecutively. Do not bypass the helper or repeatedly submit until a lucky model count passes.
+
 After all new M2 jobs leave the queue, require four summary COMPLETE sentinels, four embedding
 COMPLETE sentinels, and the review-packet COMPLETE sentinel before opening the governed packet. If
 the dense synthetic preflight or any frozen 40-history criterion fails, stop M2 and retain M1/M3 as

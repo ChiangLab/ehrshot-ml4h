@@ -73,6 +73,10 @@ their logs, sentinels, and caches. The pending fidelity-v2 recovery requires com
 output, exact code copying without expansion, `finish_reason=stop`, token metadata, plain-code-aware
 fidelity parsing, a restart-stable served-model identity, and a dense synthetic preflight. Its new
 prompt hash prevents every 502/507/513 row from satisfying the recovery cache.
+Commit `f25080d` reached the synthetic-only DGX preflight and submitted no jobs because Qwen
+occasionally counted 64 identical synthetic facts as 65. Do not retry until the pending exact-repeat
+precompaction hotfix is committed: Python must collapse exact duplicate facts within each window,
+write the true `occurrences=N` before inference, and bind that transform into a new cache schema.
 Do not run either real path locally or submit sensitivity before these gates pass.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in

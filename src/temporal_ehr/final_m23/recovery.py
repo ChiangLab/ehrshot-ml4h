@@ -14,9 +14,11 @@ import yaml
 
 from temporal_ehr.data.contracts import ContractError, assert_privacy_safe_report
 from temporal_ehr.final_m23.m2 import (
+    M2_SOURCE_COMPACTION_SCHEMA,
     NULL_LIKE_SUMMARIES,
     OnPremiseSummaryClient,
     _feature_sets,
+    compact_exact_duplicate_facts,
 )
 from temporal_ehr.final_m23.protocol import M3_SEEDS, load_final_m23_authorization
 from temporal_ehr.pilot.cache import atomic_json, file_sha256
@@ -300,17 +302,28 @@ def validate_prompt4_m2_fidelity_v2_recovery(
         "parse_plain_clinical_codes": True,
         "reject_unstructured_expansion": True,
         "stable_identity_excludes_service_start_timestamp": True,
+        "deterministic_exact_repeat_precompaction": True,
+        "source_compaction_in_cache_identity": True,
+        "consecutive_dense_synthetic_checks": 3,
         "rerun_m2": True,
         "rerun_m3": False,
         "test_predictions_or_performance_used": False,
     }
     if (
-        auth.get("version") != 1
+        auth.get("version") != 2
         or auth.get("mode") != "M2_FIDELITY_V2_RECOVERY"
         or auth.get("experiment_id") != "locked_four_task_m2_m3_v1"
         or FULL_COMMIT.fullmatch(old_commit) is None
         or current_source_git_commit == old_commit
         or auth.get("controls") != expected_controls
+        or auth.get("failed_preflight")
+        != {
+            "source_git_commit": "f25080d69c01b840522fa83b27004a2879c8d697",
+            "governed_jobs_submitted": False,
+            "recovery_report_written": False,
+            "synthetic_requested_occurrences": 64,
+            "synthetic_observed_incorrect_occurrences": 65,
+        }
     ):
         raise ContractError("Prompt 4 M2 fidelity-v2 recovery authorization drifted.")
     spec = load_final_m23_authorization(config_path, repository_root=root)
@@ -377,9 +390,9 @@ def validate_prompt4_m2_fidelity_v2_recovery(
     if legacy_rows < 1 or current_rows != 0:
         raise ContractError("Fidelity-v2 preflight requires legacy evidence and an unused prompt hash.")
 
-    live_summary_hash = None
+    live_summary_hashes: list[str] = []
     model_identity_hash = None
-    live_completion_tokens = None
+    live_completion_tokens: list[int | None] = []
     if live_endpoint_check:
         client = OnPremiseSummaryClient(
             api_base=str(spec.m2["api_base"]), model=str(spec.m2["instruction_model"])
@@ -389,33 +402,41 @@ def validate_prompt4_m2_fidelity_v2_recovery(
             "- LOINC/SYNTHETIC-A | value=0.1 | unit=unit-A | source=measurement"
             for _ in range(64)
         )
-        source = (
+        uncompressed_source = (
             "[TIME=31_60_DAYS_BEFORE_T]\n"
             f"{repeated}\n"
             "- CPT4/SYNTHETIC-B | source=procedure\n"
             "[TIME=1_30_DAYS_BEFORE_T]\n"
             "- SNOMED/SYNTHETIC-C | value=2 | unit=unit-C | source=measurement"
         )
-        generation = client.summarize_response(
-            system_prompt=str(spec.m2["prompt"]),
-            source_text=source,
-            decoding=spec.m2["decoding"],
-        )
-        features = _feature_sets(generation.summary)
+        source = compact_exact_duplicate_facts(uncompressed_source)
+        source_features = _feature_sets(source)
+        if source_features["recurrence"].get("LOINC/SYNTHETIC-A") != 64:
+            raise ContractError("Deterministic M2 preflight compaction lost synthetic recurrence.")
         required_concepts = {"LOINC/SYNTHETIC-A", "CPT4/SYNTHETIC-B", "SNOMED/SYNTHETIC-C"}
-        if (
-            set(features["concepts"]) != required_concepts
-            or features["recurrence"].get("LOINC/SYNTHETIC-A") != 64
-            or features["time_label_sequence"]
-            != ["[TIME=31_60_DAYS_BEFORE_T]", "[TIME=1_30_DAYS_BEFORE_T]"]
-            or features["format_violations"] != 0
-            or "0.1" not in features["numbers"]
-            or "2" not in features["numbers"]
-            or set(features["units"]) != {"unit-A", "unit-C"}
-        ):
-            raise ContractError("Dense synthetic M2 summary failed compact structured fidelity.")
-        live_summary_hash = stable_hash(generation.summary)
-        live_completion_tokens = generation.completion_tokens
+        for attempt in range(3):
+            generation = client.summarize_response(
+                system_prompt=str(spec.m2["prompt"]),
+                source_text=source,
+                decoding=spec.m2["decoding"],
+            )
+            features = _feature_sets(generation.summary)
+            checks = {
+                "concepts": set(features["concepts"]) == required_concepts,
+                "recurrence": features["recurrence"].get("LOINC/SYNTHETIC-A") == 64,
+                "time_order": features["time_label_sequence"]
+                == ["[TIME=31_60_DAYS_BEFORE_T]", "[TIME=1_30_DAYS_BEFORE_T]"],
+                "format": features["format_violations"] == 0,
+                "numbers": {"0.1", "2"} <= set(features["numbers"]),
+                "units": set(features["units"]) == {"unit-A", "unit-C"},
+            }
+            if not all(checks.values()):
+                failed = ",".join(name for name, passed in checks.items() if not passed)
+                raise ContractError(
+                    f"Dense synthetic M2 summary attempt {attempt + 1} failed: {failed}."
+                )
+            live_summary_hashes.append(stable_hash(generation.summary))
+            live_completion_tokens.append(generation.completion_tokens)
 
     report = {
         "status": "PASS",
@@ -429,10 +450,12 @@ def validate_prompt4_m2_fidelity_v2_recovery(
         "legacy_summary_cache_rows": legacy_rows,
         "new_prompt_cache_rows_before_submission": current_rows,
         "prompt_version": spec.m2["prompt_version"],
+        "source_compaction_schema": M2_SOURCE_COMPACTION_SCHEMA,
+        "live_dense_synthetic_repetitions": 3 if live_endpoint_check else 0,
         "finish_reason_stop_required": True,
         "stable_served_model_identity_hash": model_identity_hash,
         "live_dense_synthetic_check_passed": live_endpoint_check,
-        "live_dense_synthetic_summary_sha256": live_summary_hash,
+        "live_dense_synthetic_summary_sha256": live_summary_hashes,
         "live_dense_synthetic_completion_tokens": live_completion_tokens,
         "m3_rerun_required": False,
         "test_predictions_or_performance_used": False,

@@ -47,9 +47,11 @@ m2:
     Convert this ordered strictly pre-prediction record once into a compact structured summary.
     Output only supplied bracketed time-label lines followed by dash-prefixed fact lines; do not
     output headings, prose, explanations, or code definitions. Copy every clinical code exactly as
-    supplied and never translate, expand, rename, or interpret a code. Within each time block,
-    combine repetitions of the same code/source/unit into one fact, state occurrences=N, and list
-    each distinct supplied numeric value exactly once in first-occurrence order as values=V1,V2.
+    supplied and never translate, expand, rename, or interpret a code. Exact duplicate source facts
+    may already be compacted with occurrences=N; copy that supplied count exactly and never recount
+    or increment it. Within each time block, combine remaining repetitions of the same
+    code/source/unit into one fact, state occurrences=N, and list each distinct supplied numeric
+    value exactly once in first-occurrence order as values=V1,V2.
     Preserve every supplied unit and nonnumeric value. State trend=increasing, trend=decreasing, or
     trend=stable only when directly supported by the supplied ordered numeric values; otherwise
     omit trend. Keep every supplied time label in exactly the supplied order, including falsified

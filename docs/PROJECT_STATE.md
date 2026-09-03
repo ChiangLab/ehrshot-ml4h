@@ -173,3 +173,10 @@ Status date: 2026-09-03
   repairs fidelity extraction for plain clinical codes and explicit values/units/recurrence. A
   dense synthetic live preflight must pass before any new M2 jobs are submitted. M1, canonical M3
   jobs 470/471, and the held-out test lock are unchanged.
+- Commit `f25080d` was pulled to the DGX, but its synthetic-only preflight failed before `sbatch`, so
+  it created no recovery report and submitted no governed jobs. Repeated data-free probes isolated
+  the cause: Qwen sometimes reported 65 occurrences for 64 identical input facts despite
+  temperature zero and the fixed seed. The pending narrow repair deterministically collapses exact
+  duplicate facts and supplies the count before inference, versions that transform in the summary
+  cache, and requires three consecutive dense synthetic passes. Five local-to-on-premise probes of
+  the revised input/prompt all passed; governed execution remains pending.

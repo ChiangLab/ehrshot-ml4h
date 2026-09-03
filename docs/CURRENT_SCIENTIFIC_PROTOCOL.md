@@ -70,6 +70,11 @@ Status date: 2026-09-03. This is a concise operational index; the final August 1
   cache-eligible. The structured audit recognizes the plain `LOINC/...`, `SNOMED/...`, and similar
   code form actually emitted by the locked serializer and does not count digits inside codes or
   time labels as clinical numeric values.
+- Before M2 inference, exact duplicate rendered fact lines are deterministically collapsed within
+  each unchanged prediction-relative window and annotated with their exact recurrence count. This
+  preserves every represented fact and window while preventing the instruction model from doing
+  unreliable arithmetic or spending its output budget repeating identical values. The transform
+  version is part of the immutable cache identity.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus
   logistic regression is the required capacity comparator. The locked architecture uses at most 64
   recent nonempty windows, 512 tokens per window, hidden size 128, dropout 0.1, AdamW, and three
