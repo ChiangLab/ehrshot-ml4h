@@ -116,7 +116,7 @@ def load_final_m23_authorization(
         or m2.get("instruction_model") != "nvidia/Qwen3.6-35B-A3B-NVFP4"
         or m2.get("api_base") != "http://10.45.177.17:8000/v1"
         or m2.get("on_premise_only") is not True
-        or m2.get("prompt_version") != "m2_fidelity_v2_compact_structured"
+        or m2.get("prompt_version") != "m2_fidelity_v3_grouped_structured"
         or m2.get("reference_condition") != "C1_correct_compact_time"
         or m2.get("fidelity_condition") != "C3_shuffled_earlier_time_labels"
         or int(m2.get("fidelity_seed", -1)) != M3_SEEDS[0]

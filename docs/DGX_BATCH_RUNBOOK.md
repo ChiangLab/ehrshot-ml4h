@@ -994,3 +994,28 @@ COMPLETE sentinels, and the review-packet COMPLETE sentinel before opening the g
 the dense synthetic preflight or any frozen 40-history criterion fails, stop M2 and retain M1/M3 as
 the eligible approaches. Do not change the prompt again using the frozen review and do not access
 held-out test data.
+
+## Post-519 grouped-fidelity recovery
+
+The preceding fidelity-v2 instructions are historical. At commit `a316c98`, summary jobs 519_0 and
+519_1 reached 12 hours, 519_2 was canceled, and 519_3 rejected 549/650 length-truncated responses;
+dependent jobs 520/521 were canceled. Preserve all artifacts. From a clean DGX checkout containing
+the committed fidelity-v3 source and with the usual four environment variables exported, run:
+
+```bash
+export PROMPT4_M2_SUMMARY_PARALLELISM=2
+export PROMPT4_M2_EMBED_PARALLELISM=1
+bash scripts/slurm/submit_prompt4_m2_fidelity_v3.sh
+source outputs/private/prompt4_reference_job_ids.env
+squeue -j "${M2_ARRAY_JOB_ID},${M2_EMBED_ARRAY_JOB_ID},${M2_REVIEW_PREP_JOB_ID}" \
+  -o "%.18i %.12P %.30j %.2t %.10M %.10l %R"
+```
+
+The helper validates all four failed job-519 sentinels and canonical M3 470/471, refuses any
+downstream COMPLETE collision, requires an unused fidelity-v3 prompt hash, and runs three exact
+synthetic live generations before `sbatch`. Python—not Qwen—groups facts by code/source/unit within
+each unchanged window, retains ordered distinct numeric/text values and exact occurrence totals,
+and versions the transform/cache. Only `finish_reason=stop` summaries that fit the offline frozen
+8,192-token embedding tokenizer are stored. Progress is aggregate-only every 25 new rows. The new
+summary array reruns M2 only; its dependent embedding and 40-item review-packet jobs start only if
+all four summary tasks succeed.

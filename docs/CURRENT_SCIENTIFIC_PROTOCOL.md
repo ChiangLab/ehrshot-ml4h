@@ -1,6 +1,6 @@
 # Current scientific protocol
 
-Status date: 2026-09-03. This is a concise operational index; the final August 14 protocol and
+Status date: 2026-09-04. This is a concise operational index; the final August 14 protocol and
 `PROTOCOL_DEVIATIONS.md` remain authoritative for detail and unresolved differences.
 
 ## Cohort and panel
@@ -70,11 +70,14 @@ Status date: 2026-09-03. This is a concise operational index; the final August 1
   cache-eligible. The structured audit recognizes the plain `LOINC/...`, `SNOMED/...`, and similar
   code form actually emitted by the locked serializer and does not count digits inside codes or
   time labels as clinical numeric values.
-- Before M2 inference, exact duplicate rendered fact lines are deterministically collapsed within
-  each unchanged prediction-relative window and annotated with their exact recurrence count. This
-  preserves every represented fact and window while preventing the instruction model from doing
-  unreliable arithmetic or spending its output budget repeating identical values. The transform
-  version is part of the immutable cache identity.
+- Before M2 inference, Python deterministically groups rendered facts within each unchanged
+  prediction-relative window by clinical code, OMOP source, and unit. It preserves each distinct
+  numeric and text value in first-occurrence order and records the exact total occurrence count.
+  This preserves the represented structured evidence and window order while preventing the
+  instruction model from doing unreliable aggregation or exhausting its output on repetitions.
+  Prompt, transform, and cache schemas are versioned together. A summary is eligible only with
+  `finish_reason=stop` and an offline tokenizer check showing that it fits the frozen 8,192-token
+  downstream embedding context.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus
   logistic regression is the required capacity comparator. The locked architecture uses at most 64
   recent nonempty windows, 512 tokens per window, hidden size 128, dropout 0.1, AdamW, and three

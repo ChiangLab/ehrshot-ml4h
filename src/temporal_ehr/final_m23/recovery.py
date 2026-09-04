@@ -14,11 +14,15 @@ import yaml
 
 from temporal_ehr.data.contracts import ContractError, assert_privacy_safe_report
 from temporal_ehr.final_m23.m2 import (
+    M2_EMBEDDING_MAX_TOKENS,
     M2_SOURCE_COMPACTION_SCHEMA,
+    M2_SUMMARY_CACHE_SCHEMA,
     NULL_LIKE_SUMMARIES,
+    LocalSummaryTokenValidator,
     OnPremiseSummaryClient,
     _feature_sets,
     compact_exact_duplicate_facts,
+    group_structured_facts,
 )
 from temporal_ehr.final_m23.protocol import M3_SEEDS, load_final_m23_authorization
 from temporal_ehr.pilot.cache import atomic_json, file_sha256
@@ -107,6 +111,49 @@ def _validate_fidelity_v2_config_change(
         raise ContractError("Fidelity-v2 recovery changed more than its authorized M2 controls.")
 
 
+def _validate_fidelity_v3_config_change(
+    root: Path,
+    old_commit: str,
+    config_path: Path,
+    expected_upstream_sha256: str,
+) -> None:
+    """Allow only grouped M2 prompt/output-budget controls after failed array 519."""
+    relative = config_path.resolve().relative_to(root.resolve()).as_posix()
+    previous_text = subprocess.run(
+        ["git", "show", f"{old_commit}:{relative}"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if hashlib.sha256(previous_text.encode("utf-8")).hexdigest() != expected_upstream_sha256:
+        raise ContractError("Upstream Prompt 4 fidelity-v3 configuration hash drifted.")
+    previous = yaml.safe_load(previous_text)
+    current = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    previous_m2 = previous["m2"]
+    current_m2 = current["m2"]
+    previous_controls = {
+        "prompt_version": previous_m2.pop("prompt_version"),
+        "prompt": previous_m2.pop("prompt"),
+        "max_output_tokens": previous_m2["decoding"].pop("max_output_tokens"),
+    }
+    current_controls = {
+        "prompt_version": current_m2.pop("prompt_version"),
+        "prompt": current_m2.pop("prompt"),
+        "max_output_tokens": current_m2["decoding"].pop("max_output_tokens"),
+    }
+    if (
+        previous_controls["prompt_version"] != "m2_fidelity_v2_compact_structured"
+        or previous_controls["max_output_tokens"] != 2048
+        or current_controls["prompt_version"] != "m2_fidelity_v3_grouped_structured"
+        or current_controls["max_output_tokens"] != 4096
+        or not isinstance(current_controls["prompt"], str)
+        or "already been deterministically grouped" not in current_controls["prompt"]
+        or current != previous
+    ):
+        raise ContractError("Fidelity-v3 recovery changed more than its authorized M2 controls.")
+
+
 def _validate_complete_status(root: Path, status_id: str, commit: str, run_kind: str) -> str:
     directory = root / "outputs/private/run_status" / status_id
     payload = _json_object(directory / "COMPLETE.json", f"job-{status_id} COMPLETE sentinel")
@@ -119,6 +166,35 @@ def _validate_complete_status(root: Path, status_id: str, commit: str, run_kind:
     ):
         raise ContractError(f"Job {status_id} failed exact recovery provenance checks.")
     return file_sha256(directory / "COMPLETE.json")
+
+
+def _validate_failed_status(
+    root: Path,
+    status_id: str,
+    commit: str,
+    run_kind: str,
+    expected_exit_status: int,
+) -> dict[str, str]:
+    directory = root / "outputs/private/run_status" / status_id
+    running_path = directory / "RUNNING.json"
+    failed_path = directory / "FAILED.json"
+    running = _json_object(running_path, f"job-{status_id} RUNNING sentinel")
+    failed = _json_object(failed_path, f"job-{status_id} FAILED sentinel")
+    if (
+        running.get("state") != "RUNNING"
+        or running.get("git_commit") != commit
+        or running.get("run_kind") != run_kind
+        or failed.get("state") != "FAILED"
+        or failed.get("git_commit") != commit
+        or failed.get("run_kind") != run_kind
+        or failed.get("exit_status") != expected_exit_status
+        or (directory / "COMPLETE.json").exists()
+    ):
+        raise ContractError(f"Job {status_id} failed exact failed-attempt provenance checks.")
+    return {
+        "RUNNING.json": file_sha256(running_path),
+        "FAILED.json": file_sha256(failed_path),
+    }
 
 
 def _audit_invalid_cache_rows(root: Path) -> dict[str, Any]:
@@ -457,6 +533,206 @@ def validate_prompt4_m2_fidelity_v2_recovery(
         "live_dense_synthetic_check_passed": live_endpoint_check,
         "live_dense_synthetic_summary_sha256": live_summary_hashes,
         "live_dense_synthetic_completion_tokens": live_completion_tokens,
+        "m3_rerun_required": False,
+        "test_predictions_or_performance_used": False,
+        "patient_content_included": False,
+    }
+    assert_privacy_safe_report(json.dumps(report, sort_keys=True))
+    return report
+
+
+def validate_prompt4_m2_fidelity_v3_recovery(
+    *,
+    repository_root: Path,
+    config_path: Path,
+    authorization_path: Path,
+    model_root: Path,
+    current_source_git_commit: str,
+    live_endpoint_check: bool,
+) -> dict[str, Any]:
+    """Gate the grouped post-519 M2 recovery while reusing canonical M3 evidence."""
+    root = repository_root.resolve()
+    if FULL_COMMIT.fullmatch(current_source_git_commit) is None:
+        raise ContractError("M2 fidelity-v3 recovery requires a full current Git commit.")
+    auth = _load_authorization(root, authorization_path)
+    old_commit = str(auth.get("upstream_source_git_commit", ""))
+    expected_controls = {
+        "preserve_job_519_status_and_caches": True,
+        "preserve_canceled_downstream_jobs": True,
+        "group_by_code_source_unit_within_window": True,
+        "preserve_distinct_values_first_occurrence_order": True,
+        "preserve_total_occurrence_count": True,
+        "version_prompt_compaction_and_cache_identity": True,
+        "require_finish_reason_stop": True,
+        "require_downstream_8192_token_fit": True,
+        "progress_interval_rows": 25,
+        "consecutive_dense_synthetic_checks": 3,
+        "rerun_m2": True,
+        "rerun_m3": False,
+        "test_predictions_or_performance_used": False,
+    }
+    expected_jobs = {
+        "failed_m2_summary_array": {
+            "job_id": 519,
+            "indices": [0, 1, 2, 3],
+            "exit_status_by_index": {0: 143, 1: 143, 2: 143, 3: 1},
+        },
+        "canceled_m2_embedding": {"job_id": 520},
+        "canceled_m2_review": {"job_id": 521},
+        "m3_preparation": {"job_id": 470, "indices": [0, 1, 2, 3]},
+        "m3_seed_array": {"job_id": 471, "indices": list(range(12))},
+    }
+    if (
+        auth.get("version") != 3
+        or auth.get("mode") != "M2_FIDELITY_V3_RECOVERY"
+        or auth.get("experiment_id") != "locked_four_task_m2_m3_v1"
+        or FULL_COMMIT.fullmatch(old_commit) is None
+        or current_source_git_commit == old_commit
+        or auth.get("controls") != expected_controls
+        or auth.get("source_jobs") != expected_jobs
+    ):
+        raise ContractError("Prompt 4 M2 fidelity-v3 recovery authorization drifted.")
+
+    spec = load_final_m23_authorization(config_path, repository_root=root)
+    _validate_fidelity_v3_config_change(
+        root,
+        old_commit,
+        config_path,
+        str(auth.get("upstream_experiment_config_sha256", "")),
+    )
+    failed_status_hashes = {
+        f"519_{index}": _validate_failed_status(
+            root,
+            f"519_{index}",
+            old_commit,
+            "final_m2_summary_reference",
+            int(expected_jobs["failed_m2_summary_array"]["exit_status_by_index"][index]),
+        )
+        for index in range(4)
+    }
+
+    for downstream_id in ("520", "521"):
+        status_root = root / "outputs/private/run_status"
+        status_names = [downstream_id, *(f"{downstream_id}_{index}" for index in range(4))]
+        if any((status_root / name / "COMPLETE.json").exists() for name in status_names):
+            raise ContractError(f"Canceled downstream job {downstream_id} unexpectedly has COMPLETE evidence.")
+
+    m3_status_hashes = {
+        f"470_{index}": _validate_complete_status(
+            root,
+            f"470_{index}",
+            "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+            "final_m3_prepare_reference",
+        )
+        for index in range(4)
+    }
+    m3_status_hashes.update(
+        {
+            f"471_{index}": _validate_complete_status(
+                root,
+                f"471_{index}",
+                "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+                "final_m3_task_seed_reference",
+            )
+            for index in range(12)
+        }
+    )
+
+    current_prompt_hash = stable_hash(
+        {"version": spec.m2["prompt_version"], "prompt": spec.m2["prompt"]}
+    )
+    legacy_rows = 0
+    current_rows = 0
+    for path in (spec.private_root / "m2" / "summaries").glob("*/rows/*.json"):
+        payload = _json_object(path, "M2 summary cache row")
+        if payload.get("prompt_hash") == current_prompt_hash:
+            current_rows += 1
+        else:
+            legacy_rows += 1
+    if legacy_rows < 1 or current_rows != 0:
+        raise ContractError("Fidelity-v3 preflight requires preserved legacy rows and an unused prompt hash.")
+
+    live_summary_hashes: list[str] = []
+    live_completion_tokens: list[int | None] = []
+    live_embedding_tokens: list[int] = []
+    model_identity_hash = None
+    if live_endpoint_check:
+        client = OnPremiseSummaryClient(
+            api_base=str(spec.m2["api_base"]),
+            model=str(spec.m2["instruction_model"]),
+        )
+        model_identity_hash = client.model_revision_hash()
+        repeated_a = "\n".join(
+            "- LOINC/SYNTHETIC-A | value=0.1 | unit=unit-A | source=measurement"
+            for _ in range(64)
+        )
+        repeated_b = "\n".join(
+            f"- LOINC/SYNTHETIC-A | value={value} | unit=unit-A | source=measurement"
+            for value in ("0.2", "0.1", "0.3", "0.2")
+        )
+        ungrouped = (
+            "[TIME=31_60_DAYS_BEFORE_T]\n"
+            f"{repeated_a}\n{repeated_b}\n"
+            "- CPT4/SYNTHETIC-B | text_value=present | source=procedure\n"
+            "- CPT4/SYNTHETIC-B | text_value=absent | source=procedure\n"
+            "[TIME=1_30_DAYS_BEFORE_T]\n"
+            "- SNOMED/SYNTHETIC-C | value=2 | unit=unit-C | source=measurement"
+        )
+        grouped = group_structured_facts(ungrouped)
+        expected_grouped = (
+            "[TIME=31_60_DAYS_BEFORE_T]\n"
+            "- LOINC/SYNTHETIC-A | values=0.1,0.2,0.3 | unit=unit-A | "
+            "source=measurement | occurrences=68\n"
+            "- CPT4/SYNTHETIC-B | text_values=[\"present\",\"absent\"] | "
+            "source=procedure | occurrences=2\n"
+            "[TIME=1_30_DAYS_BEFORE_T]\n"
+            "- SNOMED/SYNTHETIC-C | values=2 | unit=unit-C | "
+            "source=measurement | occurrences=1"
+        )
+        if grouped != expected_grouped:
+            raise ContractError("Deterministic M2 grouped-source preflight drifted.")
+        token_validator = LocalSummaryTokenValidator(
+            model_root / spec.model_directory_name,
+            maximum_tokens=M2_EMBEDDING_MAX_TOKENS,
+        )
+        for attempt in range(3):
+            generation = client.summarize_response(
+                system_prompt=str(spec.m2["prompt"]),
+                source_text=grouped,
+                decoding=spec.m2["decoding"],
+            )
+            if generation.summary.strip() != grouped:
+                raise ContractError(
+                    f"Dense grouped M2 summary attempt {attempt + 1} did not copy every field exactly."
+                )
+            live_summary_hashes.append(stable_hash(generation.summary))
+            live_completion_tokens.append(generation.completion_tokens)
+            live_embedding_tokens.append(token_validator(generation.summary))
+
+    report = {
+        "status": "PASS",
+        "mode": "M2_FIDELITY_V3_RECOVERY",
+        "source_git_commit": current_source_git_commit,
+        "superseded_m2_git_commit": old_commit,
+        "m3_compute_git_commit": "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+        "preserved_job_519_status_sha256": failed_status_hashes,
+        "canceled_downstream_jobs": [520, 521],
+        "m3_complete_sentinel_sha256": m3_status_hashes,
+        "legacy_summary_cache_rows": legacy_rows,
+        "new_prompt_cache_rows_before_submission": current_rows,
+        "prompt_version": spec.m2["prompt_version"],
+        "source_compaction_schema": M2_SOURCE_COMPACTION_SCHEMA,
+        "summary_cache_schema": M2_SUMMARY_CACHE_SCHEMA,
+        "maximum_output_tokens": int(spec.m2["decoding"]["max_output_tokens"]),
+        "thinking_disabled": spec.m2["decoding"]["chat_template_kwargs"]["enable_thinking"]
+        is False,
+        "embedding_summary_max_tokens": M2_EMBEDDING_MAX_TOKENS,
+        "live_dense_synthetic_repetitions": 3 if live_endpoint_check else 0,
+        "live_dense_synthetic_check_passed": live_endpoint_check,
+        "live_dense_synthetic_summary_sha256": live_summary_hashes,
+        "live_dense_synthetic_completion_tokens": live_completion_tokens,
+        "live_dense_synthetic_embedding_tokens": live_embedding_tokens,
+        "stable_served_model_identity_hash": model_identity_hash,
         "m3_rerun_required": False,
         "test_predictions_or_performance_used": False,
         "patient_content_included": False,

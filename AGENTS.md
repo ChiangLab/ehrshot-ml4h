@@ -79,6 +79,14 @@ precompaction hotfix is committed: Python must collapse exact duplicate facts wi
 write the true `occurrences=N` before inference, and bind that transform into a new cache schema.
 Do not run either real path locally or submit sensitivity before these gates pass.
 
+Commit `a316c98` implemented exact-repeat precompaction, but M2 array 519 did not establish valid
+reference completion: tasks 0/1 reached the 12-hour limit, task 2 was canceled, and task 3 rejected
+549 of 650 completions because `finish_reason=length`. Downstream jobs 520/521 were canceled.
+Preserve every 519-521 status, log, and cache. The active recovery is fidelity-v3: group facts
+deterministically within each unchanged window by code/source/unit, preserve distinct numeric/text
+values in first-occurrence order and exact total occurrence counts, use a new prompt/compaction/cache
+identity, reject non-`stop` or over-8,192-token summaries, and rerun only M2 while reusing M3 470/471.
+
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those
 files as historical planning records. The sole active implementation prompt is

@@ -10,13 +10,17 @@ import pytest
 from temporal_ehr.data.contracts import ContractError
 from temporal_ehr.experiments import FINAL_TASKS
 from temporal_ehr.final_m23.m2 import (
+    M2_EMBEDDING_MAX_TOKENS,
     M2_SOURCE_COMPACTION_SCHEMA,
+    M2_SUMMARY_CACHE_SCHEMA,
+    LocalSummaryTokenValidator,
     OnPremiseSummaryClient,
     SummaryCache,
     _summarize_with_retries,
     audit_summary_fidelity,
     build_manual_fidelity_packet,
     compact_exact_duplicate_facts,
+    group_structured_facts,
     m2_embedding_root,
     m2_source_text,
     summary_cache_key,
@@ -38,7 +42,9 @@ from temporal_ehr.final_m23.protocol import (
 )
 from temporal_ehr.final_m23.recovery import (
     _audit_invalid_cache_rows,
+    _validate_failed_status,
     _validate_fidelity_v2_config_change,
+    _validate_fidelity_v3_config_change,
     _validate_only_allowed_config_change,
 )
 from temporal_ehr.final_m23.reporting import (
@@ -65,7 +71,8 @@ def test_prompt4_hard_gate_uses_verified_job451_handoff_and_no_test() -> None:
     assert spec.splits == ("train", "validation")
     assert "test" not in spec.splits
     assert spec.m2["decoding"]["chat_template_kwargs"] == {"enable_thinking": False}
-    assert spec.m2["prompt_version"] == "m2_fidelity_v2_compact_structured"
+    assert spec.m2["prompt_version"] == "m2_fidelity_v3_grouped_structured"
+    assert spec.m2["decoding"]["max_output_tokens"] == 4096
 
 
 class _SyntheticSummaryClient(OnPremiseSummaryClient):
@@ -178,12 +185,22 @@ def test_prompt4_recovery_changes_only_nonthinking_decoding_control() -> None:
         )
 
 
-def test_prompt4_fidelity_v2_changes_only_authorized_m2_controls() -> None:
-    _validate_fidelity_v2_config_change(
+def test_prompt4_fidelity_v2_validator_rejects_superseding_v3_config() -> None:
+    with pytest.raises(ContractError, match="more than"):
+        _validate_fidelity_v2_config_change(
+            Path.cwd(),
+            "08a639b22b7cc916ec0f51faebe65a05a29de0ac",
+            CONFIG,
+            "1c64b4a5e45e8a09d5ef17b6115d6dc28815485ce60f6a29eddbb218ead05145",
+        )
+
+
+def test_prompt4_fidelity_v3_changes_only_authorized_m2_controls() -> None:
+    _validate_fidelity_v3_config_change(
         Path.cwd(),
-        "08a639b22b7cc916ec0f51faebe65a05a29de0ac",
+        "a316c9886ae10c1c5445ac7115c0f414fb6567b2",
         CONFIG,
-        "1c64b4a5e45e8a09d5ef17b6115d6dc28815485ce60f6a29eddbb218ead05145",
+        "acc28833d6c5ebf0635791967217d97005f3756f7a5fdb6d6949945eea7d02c6",
     )
 
 
@@ -202,6 +219,41 @@ def test_recovery_cache_audit_is_aggregate_only_and_detects_null_rows(tmp_path: 
         "nonempty_text_rows": 1,
         "patient_content_included": False,
     }
+
+
+def test_fidelity_v3_recovery_validates_failed_status_without_overwrite(tmp_path: Path) -> None:
+    directory = tmp_path / "outputs/private/run_status/519_0"
+    directory.mkdir(parents=True)
+    base = {
+        "git_commit": "a" * 40,
+        "job_id": "519_0",
+        "run_kind": "final_m2_summary_reference",
+    }
+    running = {**base, "state": "RUNNING"}
+    failed = {**base, "state": "FAILED", "exit_status": 143}
+    running_path = directory / "RUNNING.json"
+    failed_path = directory / "FAILED.json"
+    running_path.write_text(json.dumps(running), encoding="utf-8")
+    failed_path.write_text(json.dumps(failed), encoding="utf-8")
+    before = (running_path.read_bytes(), failed_path.read_bytes())
+    hashes = _validate_failed_status(
+        tmp_path,
+        "519_0",
+        "a" * 40,
+        "final_m2_summary_reference",
+        143,
+    )
+    assert set(hashes) == {"RUNNING.json", "FAILED.json"}
+    assert (running_path.read_bytes(), failed_path.read_bytes()) == before
+    (directory / "COMPLETE.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ContractError, match="provenance"):
+        _validate_failed_status(
+            tmp_path,
+            "519_0",
+            "a" * 40,
+            "final_m2_summary_reference",
+            143,
+        )
 
 
 def test_cross_commit_m3_reuse_requires_hashed_recovery_report() -> None:
@@ -272,7 +324,9 @@ def test_m2_embedding_namespace_isolates_source_commits() -> None:
 def test_m2_receives_observation_windows_without_m1_prediction_instruction() -> None:
     instruction = "Represent this record for predicting a future outcome."
     prepared = f"{instruction}\n[TIME=1_30_DAYS_BEFORE_T]\n- code"
-    assert m2_source_text(prepared, instruction) == "[TIME=1_30_DAYS_BEFORE_T]\n- code"
+    assert m2_source_text(prepared, instruction) == (
+        "[TIME=1_30_DAYS_BEFORE_T]\n- code | occurrences=1"
+    )
     assert m2_source_text(instruction, instruction) == "[NO_PRE_T_EVENTS]"
     with pytest.raises(ContractError, match="locked task instruction"):
         m2_source_text(prepared, "different instruction")
@@ -298,7 +352,7 @@ def test_m2_deterministically_compacts_exact_repeats_within_each_window() -> Non
 
 
 def test_m2_source_compaction_is_versioned_and_rejects_double_counting() -> None:
-    assert M2_SOURCE_COMPACTION_SCHEMA == "m2_exact_duplicate_facts_v1"
+    assert M2_SOURCE_COMPACTION_SCHEMA == "m2_grouped_facts_v2"
     source = (
         "[TIME=1_30_DAYS_BEFORE_T]\n"
         "- LOINC/X | value=1 | occurrences=2\n"
@@ -306,6 +360,52 @@ def test_m2_source_compaction_is_versioned_and_rejects_double_counting() -> None
     )
     with pytest.raises(ContractError, match="already contains"):
         compact_exact_duplicate_facts(source)
+
+
+def test_m2_groups_code_source_unit_and_preserves_values_text_and_order() -> None:
+    source = (
+        "[TIME=31_60_DAYS_BEFORE_T]\n"
+        "- LOINC/X | value=0.1 | unit=g/dL | source=measurement\n"
+        "- CPT4/Y | text_value=present | source=procedure\n"
+        "- LOINC/X | value=0.2 | unit=g/dL | source=measurement\n"
+        "- LOINC/X | value=0.1 | unit=g/dL | source=measurement\n"
+        "- CPT4/Y | text_value=absent | source=procedure\n"
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- LOINC/X | value=0.3 | unit=g/dL | source=measurement"
+    )
+    assert group_structured_facts(source) == (
+        "[TIME=31_60_DAYS_BEFORE_T]\n"
+        "- LOINC/X | values=0.1,0.2 | unit=g/dL | source=measurement | occurrences=3\n"
+        '- CPT4/Y | text_values=["present","absent"] | source=procedure | occurrences=2\n'
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- LOINC/X | values=0.3 | unit=g/dL | source=measurement | occurrences=1"
+    )
+
+
+def test_m2_grouping_rejects_double_grouping_and_unknown_lines() -> None:
+    with pytest.raises(ContractError, match="ungrouped"):
+        group_structured_facts(
+            "[TIME=1_30_DAYS_BEFORE_T]\n- LOINC/X | source=measurement | occurrences=2"
+        )
+    with pytest.raises(ContractError, match="window/fact grammar"):
+        group_structured_facts("heading\n- LOINC/X | source=measurement")
+
+
+def test_m2_downstream_token_gate_rejects_over_context() -> None:
+    class FakeTokenizer:
+        @staticmethod
+        def encode(summary: str, *, add_special_tokens: bool) -> list[int]:
+            assert add_special_tokens is False
+            return list(range(len(summary.split())))
+
+    validator = object.__new__(LocalSummaryTokenValidator)
+    validator.tokenizer = FakeTokenizer()
+    validator.maximum_tokens = 3
+    assert validator("one two three") == 3
+    with pytest.raises(RuntimeError, match="8,192-token"):
+        validator("one two three four")
+    assert M2_EMBEDDING_MAX_TOKENS == 8192
+    assert M2_SUMMARY_CACHE_SCHEMA == "m2_summary_cache_v4_grouped_completion_bound"
 
 
 def test_summary_cache_resumes_exact_rows_and_rejects_drift(tmp_path: Path) -> None:
@@ -708,6 +808,28 @@ def test_prompt4_m2_fidelity_v2_recovery_is_fail_closed_and_reuses_m3() -> None:
     recovery = Path("src/temporal_ehr/final_m23/recovery.py").read_text(encoding="utf-8")
     assert "compact_exact_duplicate_facts(uncompressed_source)" in recovery
     assert "for attempt in range(3)" in recovery
+
+
+def test_prompt4_m2_fidelity_v3_recovery_is_fail_closed_and_reuses_m3() -> None:
+    source = Path("scripts/slurm/submit_prompt4_m2_fidelity_v3.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "validate_prompt4_m2_fidelity_v3_recovery.py" in source
+    assert "--live-endpoint-check" in source
+    assert "24_m2_summary_task_array.sbatch" in source
+    assert "24b_m2_embed_task_array.sbatch" in source
+    assert "25a_prepare_m2_fidelity_review.sbatch" in source
+    assert "M3_PREP_ARRAY_JOB_ID=470" in source
+    assert "M3_ARRAY_JOB_ID=471" in source
+    assert "26a_m3_prepare_task_array.sbatch" not in source
+    assert "26_m3_task_seed_array.sbatch" not in source
+    assert "prompt4_m2_fidelity_v3_after_519.yaml" in source
+    assert "M2_RECOVERY_REPORT=" in source
+    assert "M2_RECOVERY_REPORT_SHA256=" in source
+    recovery = Path("src/temporal_ehr/final_m23/recovery.py").read_text(encoding="utf-8")
+    assert "preserved_job_519_status_sha256" in recovery
+    assert "group_structured_facts(ungrouped)" in recovery
+    assert "generation.summary.strip() != grouped" in recovery
 
 
 def test_prompt4_m3_aggregate_supports_explicit_validated_compute_commit() -> None:

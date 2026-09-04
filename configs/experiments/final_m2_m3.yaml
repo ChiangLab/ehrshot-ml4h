@@ -42,26 +42,22 @@ m2:
   api_base: http://10.45.177.17:8000/v1
   endpoint: /chat/completions
   on_premise_only: true
-  prompt_version: m2_fidelity_v2_compact_structured
+  prompt_version: m2_fidelity_v3_grouped_structured
   prompt: >-
     Convert this ordered strictly pre-prediction record once into a compact structured summary.
-    Output only supplied bracketed time-label lines followed by dash-prefixed fact lines; do not
-    output headings, prose, explanations, or code definitions. Copy every clinical code exactly as
-    supplied and never translate, expand, rename, or interpret a code. Exact duplicate source facts
-    may already be compacted with occurrences=N; copy that supplied count exactly and never recount
-    or increment it. Within each time block, combine remaining repetitions of the same
-    code/source/unit into one fact, state occurrences=N, and list each distinct supplied numeric
-    value exactly once in first-occurrence order as values=V1,V2.
-    Preserve every supplied unit and nonnumeric value. State trend=increasing, trend=decreasing, or
-    trend=stable only when directly supported by the supplied ordered numeric values; otherwise
-    omit trend. Keep every supplied time label in exactly the supplied order, including falsified
-    labels; never correct or reinterpret one. Do not infer a diagnosis, concept name, causal
-    relationship, future event, outcome, or missing fact. Use only facts present in the input.
+    The input has already been deterministically grouped within each time block by clinical code,
+    source, and unit. Copy each supplied bracketed time-label line and each grouped dash-prefixed
+    fact exactly once, preserving their order and every supplied values=, text_values=, unit=,
+    source=, and occurrences= field exactly. Do not regroup, recount, expand, rename, translate,
+    interpret, omit, or add a clinical code or field. Output only the supplied time-label and fact
+    lines; do not output headings, prose, explanations, code definitions, diagnoses, causal
+    relationships, future events, outcomes, or missing facts. Keep every supplied time label in
+    exactly the supplied order, including falsified labels; never correct or reinterpret one.
   decoding:
     temperature: 0.0
     top_p: 1.0
     seed: 20260815
-    max_output_tokens: 2048
+    max_output_tokens: 4096
     chat_template_kwargs:
       enable_thinking: false
   execution:

@@ -1,6 +1,6 @@
 # Project state
 
-Status date: 2026-09-03
+Status date: 2026-09-04
 
 ## Source state
 
@@ -180,3 +180,14 @@ Status date: 2026-09-03
   duplicate facts and supplies the count before inference, versions that transform in the summary
   cache, and requires three consecutive dense synthetic passes. Five local-to-on-premise probes of
   the revised input/prompt all passed; governed execution remains pending.
+- Commit `a316c98` then implemented exact-repeat precompaction and submitted M2 reference array 519.
+  It did not establish M2 completion: tasks 519_0 and 519_1 reached the 12-hour limit, 519_2 was
+  canceled, and 519_3 failed after rejecting 549 of 650 length-truncated responses. Dependent M2
+  embedding 520 and review 521 were canceled. The preserved current-version successful-row counts
+  are 396 anemia, 50 readmission, 67 hypertension, and 101 CheXpert; they are superseded engineering
+  evidence and cannot satisfy the next prompt/cache identity.
+- The pending fidelity-v3 recovery groups every window by exact code/source/unit before Qwen,
+  preserves distinct numeric/text values in first-occurrence order and exact occurrence totals,
+  raises the completion ceiling from 2,048 to 4,096, requires `finish_reason=stop`, and validates
+  every accepted summary against the frozen 8,192-token embedding tokenizer. It records progress
+  every 25 new rows, preserves all earlier attempts, reruns only M2, and reuses M3 jobs 470/471.

@@ -10,7 +10,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,7 +39,10 @@ OCCURRENCES_RE = re.compile(r"\boccurrences=(\d+)")
 NUMBER_TOKEN_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
 TREND_WORDS = {"increasing", "decreasing", "stable"}
 NULL_LIKE_SUMMARIES = frozenset({"none", "null"})
-M2_SOURCE_COMPACTION_SCHEMA = "m2_exact_duplicate_facts_v1"
+M2_SOURCE_COMPACTION_SCHEMA = "m2_grouped_facts_v2"
+M2_SUMMARY_CACHE_SCHEMA = "m2_summary_cache_v4_grouped_completion_bound"
+M2_EMBEDDING_MAX_TOKENS = 8192
+SOURCE_FIELD_RE = re.compile(r" \| (?=(?:value|text_value|unit|source)=)")
 MANUAL_REVIEW_CRITERIA = (
     "concepts_preserved",
     "numeric_values_preserved",
@@ -199,7 +202,7 @@ def summary_cache_key(
     """Hash every required M2 generation input; patient identity is not needed."""
     return stable_hash(
         {
-            "schema": "m2_summary_cache_v3_precompacted_completion_bound",
+            "schema": M2_SUMMARY_CACHE_SCHEMA,
             "source_hash": source_hash,
             "condition": condition,
             "prompt_hash": prompt_hash,
@@ -277,6 +280,108 @@ def compact_exact_duplicate_facts(source_text: str) -> str:
     return compacted
 
 
+def _parse_rendered_source_fact(
+    line: str,
+) -> tuple[str, str | None, str | None, str | None, str | None]:
+    """Parse one locked serializer fact without interpreting its clinical content."""
+    if not line.startswith("- ") or OCCURRENCES_RE.search(line):
+        raise ContractError("M2 grouping requires an ungrouped locked serializer fact line.")
+    parts = SOURCE_FIELD_RE.split(line[2:])
+    concept = parts[0].strip()
+    if not concept:
+        raise ContractError("M2 source fact has no clinical code field.")
+    fields: dict[str, str] = {}
+    for part in parts[1:]:
+        if "=" not in part:
+            raise ContractError("M2 source fact contains an unrecognized structured field.")
+        key, value = part.split("=", maxsplit=1)
+        if key not in {"value", "text_value", "unit", "source"} or key in fields:
+            raise ContractError("M2 source fact contains duplicate or unsupported fields.")
+        fields[key] = value
+    return concept, fields.get("value"), fields.get("text_value"), fields.get("unit"), fields.get("source")
+
+
+def group_structured_facts(source_text: str) -> str:
+    """Losslessly group rendered facts by concept/source/unit inside unchanged windows.
+
+    Values and text values retain first-occurrence order, recurrence is counted in Python, and
+    neither time-block order nor first concept occurrence is changed. This makes the instruction
+    model copy a bounded structured representation instead of performing unreliable aggregation.
+    """
+    output: list[str] = []
+    window_facts: list[tuple[str, str | None, str | None, str | None, str | None]] = []
+
+    def flush_window() -> None:
+        grouped: dict[tuple[str, str | None, str | None], dict[str, Any]] = {}
+        order: list[tuple[str, str | None, str | None]] = []
+        for concept, value, text_value, unit, source in window_facts:
+            key = (concept, source, unit)
+            if key not in grouped:
+                grouped[key] = {"values": [], "text_values": [], "occurrences": 0}
+                order.append(key)
+            record = grouped[key]
+            record["occurrences"] += 1
+            if value is not None and value not in record["values"]:
+                record["values"].append(value)
+            if text_value is not None and text_value not in record["text_values"]:
+                record["text_values"].append(text_value)
+        for concept, source, unit in order:
+            record = grouped[(concept, source, unit)]
+            parts = [f"- {concept}"]
+            if record["values"]:
+                parts.append("values=" + ",".join(record["values"]))
+            if record["text_values"]:
+                encoded = json.dumps(record["text_values"], ensure_ascii=False, separators=(",", ":"))
+                parts.append(f"text_values={encoded}")
+            if unit is not None:
+                parts.append(f"unit={unit}")
+            if source is not None:
+                parts.append(f"source={source}")
+            parts.append(f"occurrences={record['occurrences']}")
+            output.append(" | ".join(parts))
+        window_facts.clear()
+
+    for raw_line in source_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("-"):
+            window_facts.append(_parse_rendered_source_fact(line))
+            continue
+        flush_window()
+        if not TIME_LABEL_RE.fullmatch(line):
+            raise ContractError("M2 source contains a line outside the locked window/fact grammar.")
+        output.append(line)
+    flush_window()
+    grouped_text = "\n".join(output)
+    if not grouped_text:
+        raise ContractError("M2 deterministic source grouping produced empty text.")
+    return grouped_text
+
+
+class LocalSummaryTokenValidator:
+    """Offline tokenizer gate for the frozen downstream Qwen embedding context."""
+
+    def __init__(self, model_directory: Path, *, maximum_tokens: int) -> None:
+        try:
+            from transformers import AutoTokenizer
+        except ImportError as exc:  # pragma: no cover - DGX dependency gate
+            raise RuntimeError("M2 summary validation requires transformers in the container.") from exc
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            str(model_directory),
+            local_files_only=True,
+        )
+        self.maximum_tokens = int(maximum_tokens)
+
+    def __call__(self, summary: str) -> int:
+        token_count = len(self.tokenizer.encode(summary, add_special_tokens=False))
+        if token_count > self.maximum_tokens:
+            raise NonRetryableSummaryError(
+                "M2 summary exceeds the frozen downstream 8,192-token embedding context."
+            )
+        return token_count
+
+
 def m2_source_text(prepared_text: str, instruction: str) -> str:
     """Remove M1's prediction instruction and retain only ordered observation windows."""
     prefix = instruction.strip()
@@ -288,7 +393,7 @@ def m2_source_text(prepared_text: str, instruction: str) -> str:
     source = prepared_text[len(expected) :].strip()
     if not source or "[" not in source:
         raise ContractError("M2 source contains no serialized observation window.")
-    return compact_exact_duplicate_facts(source)
+    return group_structured_facts(source)
 
 
 class SummaryCache:
@@ -509,6 +614,7 @@ def run_m2_task(
     source_git_commit: str,
     client: OnPremiseSummaryClient | None = None,
     embed_summaries: bool = True,
+    summary_token_counter: Callable[[str], int] | None = None,
 ) -> dict[str, Any]:
     """Generate/cache one-pass summaries and embed the stage-authorized conditions."""
     spec = load_final_m23_authorization(config_path, repository_root=repository_root)
@@ -529,6 +635,10 @@ def run_m2_task(
     decoding_hash = stable_hash(decoding)
     concurrent_requests = int(spec.m2["execution"]["concurrent_requests"])
     request_retries = int(spec.m2["execution"]["request_retries"])
+    token_counter = summary_token_counter or LocalSummaryTokenValidator(
+        model_root / spec.model_directory_name,
+        maximum_tokens=M2_EMBEDDING_MAX_TOKENS,
+    )
     cache = SummaryCache(spec.private_root / "m2" / "summaries" / task)
     representation_keys: dict[str, str] = {}
     payloads_by_key: dict[str, dict[str, Any]] = {}
@@ -562,6 +672,7 @@ def run_m2_task(
             if payload is None:
                 pending_by_key[key] = (source_text, expected)
             else:
+                token_counter(str(payload["summary"]))
                 payloads_by_key[key] = payload
                 reused += 1
         representation_keys[str(row["representation_key"])] = key
@@ -577,6 +688,7 @@ def run_m2_task(
                 decoding=decoding,
                 retries=request_retries,
             )
+            summary_token_count = token_counter(generation.summary)
             return cache_key, {
                 **expected,
                 "summary": generation.summary,
@@ -584,6 +696,8 @@ def run_m2_task(
                 "finish_reason": generation.finish_reason,
                 "prompt_tokens": generation.prompt_tokens,
                 "completion_tokens": generation.completion_tokens,
+                "embedding_token_count": summary_token_count,
+                "embedding_max_tokens": M2_EMBEDDING_MAX_TOKENS,
             }
 
         with ThreadPoolExecutor(max_workers=min(concurrent_requests, len(pending_by_key))) as executor:
@@ -595,7 +709,7 @@ def run_m2_task(
                     cache.store(key, payload)
                     payloads_by_key[key] = payload
                     completed_new += 1
-                    if completed_new % 100 == 0 or completed_new == len(pending_by_key):
+                    if completed_new % 25 == 0 or completed_new == len(pending_by_key):
                         print(
                             json.dumps(
                                 {
@@ -664,6 +778,11 @@ def run_m2_task(
         "summary_rows_generated_this_attempt": len(pending_by_key),
         "source_history_policy": str(spec.m2["source_history_policy"]),
         "source_compaction_schema": M2_SOURCE_COMPACTION_SCHEMA,
+        "summary_cache_schema": M2_SUMMARY_CACHE_SCHEMA,
+        "embedding_summary_max_tokens": M2_EMBEDDING_MAX_TOKENS,
+        "maximum_embedding_summary_tokens": max(
+            int(payload["embedding_token_count"]) for payload in payloads_by_key.values()
+        ),
         "concurrent_summary_requests": concurrent_requests,
         "request_retries": request_retries,
         "summary_cache_key_fields": [
