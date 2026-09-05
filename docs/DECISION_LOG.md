@@ -1,6 +1,6 @@
 # Decision log
 
-Status date: 2026-09-04. Open scientific deviations are tracked in greater detail in
+Status date: 2026-09-05. Open scientific deviations are tracked in greater detail in
 `PROTOCOL_DEVIATIONS.md`.
 
 | ID | Decision | Status | Evidence or next gate |
@@ -30,3 +30,4 @@ Status date: 2026-09-04. Open scientific deviations are tracked in greater detai
 | DEC-023 | Version M2 as compact structured summarization after validation-only inspection exposed repetition-driven output exhaustion and unsupported code expansion. | SOURCE IMPLEMENTED; DGX PREFLIGHT PENDING | Exact codes may not be translated; recurrence is grouped; only `finish_reason=stop` is eligible; token usage is recorded; plain-code fidelity parsing and a dense synthetic live gate precede the rerun. Jobs 507/513 remain superseded evidence, and M3 470/471 is reused unchanged. |
 | DEC-024 | Compute exact-duplicate M2 recurrence deterministically before the instruction-model call. | SOURCE IMPLEMENTED; DGX PREFLIGHT PENDING | The `f25080d` synthetic gate submitted no jobs because Qwen intermittently counted 64 identical rows as 65. Collapsing exact duplicates within their unchanged window preserves all represented evidence, reduces tokens, removes unreliable arithmetic from Qwen, and is bound into a new cache schema; three consecutive synthetic passes are required. |
 | DEC-025 | Replace instruction-model aggregation with deterministic within-window grouping before the fidelity-v3 M2 call. | SOURCE IMPLEMENTED; LOCAL VALIDATION PENDING | Job 519 showed that exact-repeat-only compaction still caused 12-hour overruns and 549/650 CheXpert length rejections. Group by code/source/unit in Python, preserve ordered distinct numeric/text values and exact counts, increase only the output ceiling to 4,096, and require clean completion plus an 8,192-token downstream fit. M1/M3, clinical evidence, conditions, splits, and test lock do not change. |
+| DEC-026 | Recover fidelity-v3 job 529 with exact cache validation, a separate 8,192-token overflow identity, and deterministic bounded shards. | SOURCE IMPLEMENTED; LOCAL/DGX VALIDATION PENDING | The primary 4,096-token identity remains unchanged, so verified exact-copy rows can be reused. Missing, non-exact, truncated, or over-context rows cannot satisfy that gate and are regenerated under the overflow identity. Eight shards per task with at most two active keep each job below the 12-hour site limit without changing the experiment. |

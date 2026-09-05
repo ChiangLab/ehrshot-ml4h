@@ -132,12 +132,17 @@ def load_final_m23_authorization(
         or decoding.get("chat_template_kwargs") != {"enable_thinking": False}
     ):
         raise ContractError("M2 decoding is not deterministically locked.")
+    overflow_decoding = m2.get("overflow_decoding")
+    if overflow_decoding != {"max_output_tokens": 8192}:
+        raise ContractError("M2 overflow decoding must change only the 8,192-token completion cap.")
     execution = m2.get("execution")
     if not isinstance(execution, dict) or (
         int(execution.get("concurrent_requests", 0)) not in range(1, 17)
         or int(execution.get("request_retries", -1)) not in range(0, 6)
+        or int(execution.get("summary_shards_per_task", 0)) != 8
+        or int(execution.get("progress_interval_rows", 0)) not in range(1, 101)
     ):
-        raise ContractError("M2 execution concurrency or retry policy is not safely locked.")
+        raise ContractError("M2 execution concurrency, retry, shard, or progress policy is not safely locked.")
     fidelity = m2.get("fidelity")
     if not isinstance(fidelity, dict) or (
         int(fidelity.get("validation_histories", 0)) < 40

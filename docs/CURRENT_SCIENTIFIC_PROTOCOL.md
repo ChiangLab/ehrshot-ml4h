@@ -1,6 +1,6 @@
 # Current scientific protocol
 
-Status date: 2026-09-04. This is a concise operational index; the final August 14 protocol and
+Status date: 2026-09-05. This is a concise operational index; the final August 14 protocol and
 `PROTOCOL_DEVIATIONS.md` remain authoritative for detail and unresolved differences.
 
 ## Cohort and panel
@@ -78,6 +78,12 @@ Status date: 2026-09-04. This is a concise operational index; the final August 1
   Prompt, transform, and cache schemas are versioned together. A summary is eligible only with
   `finish_reason=stop` and an offline tokenizer check showing that it fits the frozen 8,192-token
   downstream embedding context.
+- The post-529 recovery preserves the primary 4,096-token decoding/cache identity and admits one
+  prior row only when its assistant text exactly equals the reconstructed grouped source and fits
+  the downstream tokenizer. Missing or rejected rows use a distinct 8,192-token completion-budget
+  identity. Eight deterministic shards per task and a two-shard cap change scheduling only; they do
+  not change source evidence, prompt, model, condition, split, or evaluation. If validation selects
+  M2, the already-authorized M2 sensitivity conditions use the same bounded shard policy.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus
   logistic regression is the required capacity comparator. The locked architecture uses at most 64
   recent nonempty windows, 512 tokens per window, hidden size 128, dropout 0.1, AdamW, and three

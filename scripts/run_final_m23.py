@@ -69,6 +69,8 @@ def parse_args() -> argparse.Namespace:
     m2_task.add_argument("--task-index", type=int, required=True)
     m2_task.add_argument("--stage", choices=("reference", "sensitivity"), required=True)
     m2_task.add_argument("--summaries-only", action="store_true")
+    m2_task.add_argument("--summary-shard-index", type=int)
+    m2_task.add_argument("--summary-shard-count", type=int)
     m2_fit = commands.add_parser("m2-fit")
     m2_fit.add_argument("--stage", choices=("reference", "sensitivity"), required=True)
     m3_prepare = commands.add_parser("m3-prepare-task")
@@ -108,6 +110,8 @@ def main() -> int:
                 model=str(spec.m2["instruction_model"]),
             ),
             embed_summaries=not args.summaries_only,
+            summary_shard_index=args.summary_shard_index,
+            summary_shard_count=args.summary_shard_count,
         )
     elif args.command == "m2-fit":
         result = fit_m2_validation(

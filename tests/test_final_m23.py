@@ -14,16 +14,20 @@ from temporal_ehr.final_m23.m2 import (
     M2_SOURCE_COMPACTION_SCHEMA,
     M2_SUMMARY_CACHE_SCHEMA,
     LocalSummaryTokenValidator,
+    NonRetryableSummaryError,
     OnPremiseSummaryClient,
     SummaryCache,
     _summarize_with_retries,
     audit_summary_fidelity,
     build_manual_fidelity_packet,
     compact_exact_duplicate_facts,
+    exact_summary_payload_is_reusable,
     group_structured_facts,
+    m2_decoding_variants,
     m2_embedding_root,
     m2_source_text,
     summary_cache_key,
+    summary_shard_for_key,
     validate_manual_fidelity_decisions,
     validate_on_premise_api_base,
 )
@@ -45,6 +49,7 @@ from temporal_ehr.final_m23.recovery import (
     _validate_failed_status,
     _validate_fidelity_v2_config_change,
     _validate_fidelity_v3_config_change,
+    _validate_fidelity_v4_config_change,
     _validate_only_allowed_config_change,
 )
 from temporal_ehr.final_m23.reporting import (
@@ -73,6 +78,8 @@ def test_prompt4_hard_gate_uses_verified_job451_handoff_and_no_test() -> None:
     assert spec.m2["decoding"]["chat_template_kwargs"] == {"enable_thinking": False}
     assert spec.m2["prompt_version"] == "m2_fidelity_v3_grouped_structured"
     assert spec.m2["decoding"]["max_output_tokens"] == 4096
+    assert spec.m2["overflow_decoding"] == {"max_output_tokens": 8192}
+    assert spec.m2["execution"]["summary_shards_per_task"] == 8
 
 
 class _SyntheticSummaryClient(OnPremiseSummaryClient):
@@ -195,12 +202,22 @@ def test_prompt4_fidelity_v2_validator_rejects_superseding_v3_config() -> None:
         )
 
 
-def test_prompt4_fidelity_v3_changes_only_authorized_m2_controls() -> None:
-    _validate_fidelity_v3_config_change(
+def test_prompt4_fidelity_v3_validator_rejects_superseding_v4_config() -> None:
+    with pytest.raises(ContractError, match="more than"):
+        _validate_fidelity_v3_config_change(
+            Path.cwd(),
+            "a316c9886ae10c1c5445ac7115c0f414fb6567b2",
+            CONFIG,
+            "acc28833d6c5ebf0635791967217d97005f3756f7a5fdb6d6949945eea7d02c6",
+        )
+
+
+def test_prompt4_fidelity_v4_changes_only_overflow_and_shard_controls() -> None:
+    _validate_fidelity_v4_config_change(
         Path.cwd(),
-        "a316c9886ae10c1c5445ac7115c0f414fb6567b2",
+        "818103ea4851081ab827529781efb9f526044765",
         CONFIG,
-        "acc28833d6c5ebf0635791967217d97005f3756f7a5fdb6d6949945eea7d02c6",
+        "93e3aca0bcc504067b44a6d28b55dc5e7054d4ce22cdf9cbe1dbf81a9e1beca2",
     )
 
 
@@ -295,6 +312,50 @@ def test_summary_cache_key_covers_all_required_generation_inputs() -> None:
     keys = {summary_cache_key(**{**base, field: f"changed-{field}"}) for field in base}
     keys.add(summary_cache_key(**base))
     assert len(keys) == len(base) + 1
+
+
+def test_m2_adaptive_decoding_preserves_primary_identity_and_separates_overflow() -> None:
+    variants = m2_decoding_variants(_spec().m2)
+    assert [name for name, _ in variants] == ["primary_4096", "overflow_8192"]
+    assert [decoding["max_output_tokens"] for _, decoding in variants] == [4096, 8192]
+    assert variants[0][1]["temperature"] == variants[1][1]["temperature"] == 0.0
+    assert stable_hash(variants[0][1]) != stable_hash(variants[1][1])
+
+
+def test_m2_summary_shards_are_deterministic_complete_and_disjoint() -> None:
+    keys = [stable_hash({"synthetic": index}) for index in range(100)]
+    assignments = [summary_shard_for_key(key, 8) for key in keys]
+    assert assignments == [summary_shard_for_key(key, 8) for key in keys]
+    assert set(assignments) == set(range(8))
+    assert sum(assignments.count(index) for index in range(8)) == len(keys)
+    with pytest.raises(ContractError):
+        summary_shard_for_key("not-a-hash", 8)
+
+
+def test_m2_reuses_only_exact_downstream_fit_summary_payloads() -> None:
+    source = "[TIME=1_30_DAYS_BEFORE_T]\n- LOINC/X | values=1 | occurrences=1"
+    payload = {"summary": source}
+    assert exact_summary_payload_is_reusable(
+        payload,
+        source_text=source,
+        token_counter=lambda text: len(text),
+    )
+    assert not exact_summary_payload_is_reusable(
+        {"summary": source + "\n- ADDED/X | occurrences=1"},
+        source_text=source,
+        token_counter=lambda text: len(text),
+    )
+
+    def reject(_: str) -> int:
+        raise NonRetryableSummaryError(
+            "M2 summary exceeds the frozen downstream 8,192-token context."
+        )
+
+    assert not exact_summary_payload_is_reusable(
+        payload,
+        source_text=source,
+        token_counter=reject,
+    )
 
 
 def test_m2_embedding_namespace_isolates_source_commits() -> None:
@@ -832,6 +893,38 @@ def test_prompt4_m2_fidelity_v3_recovery_is_fail_closed_and_reuses_m3() -> None:
     assert "generation.summary.strip() != grouped" in recovery
 
 
+def test_prompt4_m2_fidelity_v4_recovery_is_sharded_resumable_and_notified() -> None:
+    submit = Path("scripts/slurm/submit_prompt4_m2_fidelity_v4.sh").read_text(
+        encoding="utf-8"
+    )
+    shard = Path("scripts/slurm/24c_m2_summary_shard_array.sbatch").read_text(
+        encoding="utf-8"
+    )
+    assert "validate_prompt4_m2_fidelity_v4_recovery.py" in submit
+    assert "prompt4_m2_fidelity_v4_after_529.yaml" in submit
+    assert "24c_m2_summary_shard_array.sbatch" in submit
+    assert "M2_SUMMARY_SHARDS_PER_TASK=8" in submit
+    assert '0-${LAST_SHARD_INDEX}%${M2_SUMMARY_PARALLELISM}' in submit
+    assert "M3_PREP_ARRAY_JOB_ID=470" in submit
+    assert "M3_ARRAY_JOB_ID=471" in submit
+    assert "TIME_LIMIT_80,TIME_LIMIT_90" in submit
+    assert "cleanup_partial_submission" in submit
+    assert "reusing immutable fidelity-v4 preflight" in submit
+    assert "--summary-shard-index" in shard
+    assert "--summary-shard-count" in shard
+    assert "#SBATCH --array=0-31%2" in shard
+    assert "#SBATCH --time=12:00:00" in shard
+    assert "final_initialize" in shard
+    assert "final_mark_success" in shard
+    assert "26_m3_task_seed_array.sbatch" not in submit
+    general_submit = Path("scripts/slurm/submit_prompt4_execution.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "M2_REFERENCE_MAX_INDEX" in general_submit
+    assert "M2_SENSITIVITY_MAX_INDEX" in general_submit
+    assert "scripts/slurm/24c_m2_summary_shard_array.sbatch" in general_submit
+
+
 def test_prompt4_m3_aggregate_supports_explicit_validated_compute_commit() -> None:
     source = Path("src/temporal_ehr/final_m23/reporting.py").read_text(encoding="utf-8")
     assert "evidence_source_git_commit" in source
@@ -861,6 +954,7 @@ def test_prompt4_freeze_authorizes_both_co_primary_contrasts() -> None:
     source = Path("src/temporal_ehr/final_m23/reporting.py").read_text(encoding="utf-8")
     assert "C1_correct_compact_time minus B1_latest_window_only" in source
     assert "C1_correct_compact_time minus each of three fixed C3" in source
+    assert '"m2_completion_policy_hash"' in source
     submit = Path("scripts/slurm/submit_prompt4_execution.sh").read_text(encoding="utf-8")
     assert "reference-finalize" in submit
     assert "review_m2_fidelity_manual.py finalize" in submit

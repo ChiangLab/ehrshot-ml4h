@@ -45,14 +45,26 @@ append_array() {
 }
 
 append_single "${CAPACITY_JOB_ID:-}"
-append_array "${M2_ARRAY_JOB_ID:-}" 3
+if [[ -n "${M2_ARRAY_JOB_ID:-}" ]]; then
+  if [[ -n "${M2_SUMMARY_SHARDS_PER_TASK:-}" ]]; then
+    append_array "${M2_ARRAY_JOB_ID}" "$((4 * M2_SUMMARY_SHARDS_PER_TASK - 1))"
+  else
+    append_array "${M2_ARRAY_JOB_ID}" 3
+  fi
+fi
 append_array "${M2_EMBED_ARRAY_JOB_ID:-}" 3
 append_single "${M2_REVIEW_PREP_JOB_ID:-}"
 append_array "${M3_PREP_ARRAY_JOB_ID:-}" 3
 append_array "${M3_ARRAY_JOB_ID:-}" 11
 append_single "${M2_FIT_JOB_ID:-}"
 append_single "${M3_FIT_JOB_ID:-}"
-append_array "${SENSITIVITY_SUMMARY_ARRAY_JOB_ID:-}" 3
+if [[ -n "${SENSITIVITY_SUMMARY_ARRAY_JOB_ID:-}" ]]; then
+  if [[ -n "${M2_SUMMARY_SHARDS_PER_TASK:-}" ]]; then
+    append_array "${SENSITIVITY_SUMMARY_ARRAY_JOB_ID}" "$((4 * M2_SUMMARY_SHARDS_PER_TASK - 1))"
+  else
+    append_array "${SENSITIVITY_SUMMARY_ARRAY_JOB_ID}" 3
+  fi
+fi
 append_array "${SENSITIVITY_EMBED_ARRAY_JOB_ID:-}" 3
 append_array "${SENSITIVITY_M3_PREP_ARRAY_JOB_ID:-}" 3
 if [[ -n "${SENSITIVITY_M3_PREP_ARRAY_JOB_ID:-}" ]]; then

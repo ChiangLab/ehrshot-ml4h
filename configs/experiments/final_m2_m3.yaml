@@ -60,9 +60,13 @@ m2:
     max_output_tokens: 4096
     chat_template_kwargs:
       enable_thinking: false
+  overflow_decoding:
+    max_output_tokens: 8192
   execution:
     concurrent_requests: 4
     request_retries: 3
+    summary_shards_per_task: 8
+    progress_interval_rows: 25
   reference_condition: C1_correct_compact_time
   fidelity_condition: C3_shuffled_earlier_time_labels
   fidelity_seed: 20260815

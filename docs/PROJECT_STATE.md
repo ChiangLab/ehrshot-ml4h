@@ -1,6 +1,6 @@
 # Project state
 
-Status date: 2026-09-04
+Status date: 2026-09-05
 
 ## Source state
 
@@ -191,3 +191,14 @@ Status date: 2026-09-04
   raises the completion ceiling from 2,048 to 4,096, requires `finish_reason=stop`, and validates
   every accepted summary against the frozen 8,192-token embedding tokenizer. It records progress
   every 25 new rows, preserves all earlier attempts, reruns only M2, and reuses M3 jobs 470/471.
+- Commit `818103e` submitted fidelity-v3 M2 array 529. Tasks 529_0 and 529_1 reached 12 hours,
+  529_2 was intentionally canceled after 7h35m when the graph was already unsatisfiable, and
+  529_3 failed after 333 CheXpert responses reached `finish_reason=length` at 4,096 tokens. All
+  four have preserved FAILED sentinels; downstream 530/531 were canceled. The last aggregate-only
+  cache inventory showed 677 anemia, 881 readmission, 640-plus hypertension, and 317 CheXpert
+  fidelity-v3 candidate rows. These are candidates, not completion evidence.
+- The pending fidelity-v4 recovery retains the exact primary decoding hash, reuses only candidate
+  rows whose content is an exact reconstructed grouped-source copy and passes the frozen 8,192-token
+  tokenizer, and generates only missing/rejected rows under a separate 8,192-token overflow hash.
+  Work is partitioned into eight deterministic shards per task with at most two active and four
+  requests per shard. M3 470/471 remains canonical; test performance remains locked.

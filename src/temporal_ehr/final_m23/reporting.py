@@ -17,9 +17,11 @@ from temporal_ehr.final_m1.embedding import condition_slug
 from temporal_ehr.final_m1.report import fit_condition_scope, paired_contrast
 from temporal_ehr.final_m1.throughput import read_final_task_texts
 from temporal_ehr.final_m23.m2 import (
+    M2_SOURCE_COMPACTION_SCHEMA,
     SummaryCache,
     _write_parquet_once,
     audit_summary_fidelity,
+    m2_decoding_variants,
     m2_embedding_root,
     m2_source_text,
     m2_stage_rows,
@@ -97,6 +99,12 @@ def _m2_fidelity_records(
         f"{spec.m2['fidelity_condition']}:seed={spec.m2['fidelity_seed']}",
     )
     records: list[dict[str, Any]] = []
+    prompt_hash = stable_hash(
+        {"version": spec.m2["prompt_version"], "prompt": spec.m2["prompt"]}
+    )
+    decoding_hashes = {
+        stable_hash(decoding) for _, decoding in m2_decoding_variants(spec.m2)
+    }
     for task in spec.tasks:
         prepared = m2_stage_rows(read_final_task_texts(m1, task), spec=spec, stage="reference")
         task_report_path = spec.aggregate_root / "m2" / "tasks" / f"{task}_reference.json"
@@ -107,11 +115,17 @@ def _m2_fidelity_records(
         task_report = json.loads(task_report_path.read_text(encoding="utf-8"))
         revision_hash = str(task_report["instruction_model_revision_hash"])
         cache = SummaryCache(spec.private_root / "m2" / "summaries" / task)
-        by_source_condition: dict[tuple[str, str], dict[str, Any]] = {}
+        by_source_condition: dict[tuple[str, str], list[dict[str, Any]]] = {}
         for path in (cache.root / "rows").glob("*.json"):
             payload = json.loads(path.read_text(encoding="utf-8"))
-            if payload.get("model_revision_hash") == revision_hash:
-                by_source_condition[(str(payload["source_hash"]), str(payload["condition"]))] = payload
+            if (
+                payload.get("model_revision_hash") == revision_hash
+                and payload.get("prompt_hash") == prompt_hash
+                and payload.get("decoding_hash") in decoding_hashes
+                and payload.get("finish_reason") == "stop"
+            ):
+                key = (str(payload["source_hash"]), str(payload["condition"]))
+                by_source_condition.setdefault(key, []).append(payload)
         for row in prepared:
             label = str(row["representation"])
             seed = row.get("perturbation_seed")
@@ -120,7 +134,21 @@ def _m2_fidelity_records(
             if label not in labels or row["split"] != "validation":
                 continue
             source_text = m2_source_text(str(row["text"]), m1.instructions[task])
-            payload = by_source_condition.get((stable_hash(source_text), label))
+            source_hash = stable_hash(
+                {"schema": M2_SOURCE_COMPACTION_SCHEMA, "source_text": source_text}
+            )
+            candidates = sorted(
+                by_source_condition.get((source_hash, label), []),
+                key=lambda value: int(value.get("completion_budget_tokens", 4096)),
+            )
+            payload = next(
+                (
+                    value
+                    for value in candidates
+                    if str(value.get("summary", "")).strip() == source_text.strip()
+                ),
+                None,
+            )
             if payload is None:
                 raise ContractError(f"M2 fidelity summary is missing for {task}/{label}.")
             records.append(
@@ -642,6 +670,9 @@ def freeze_prompt4_manifest(
             {"version": spec.m2["prompt_version"], "prompt": spec.m2["prompt"]}
         ),
         "m2_decoding_hash": stable_hash(spec.m2["decoding"]),
+        "m2_completion_policy_hash": stable_hash(
+            {name: decoding for name, decoding in m2_decoding_variants(spec.m2)}
+        ),
         "m3_architecture_hash": stable_hash(spec.m3),
         "protocol_frozen": True,
         "one_time_held_out_run_authorized_by_prompt4": True,

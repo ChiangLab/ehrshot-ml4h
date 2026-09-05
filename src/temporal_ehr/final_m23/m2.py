@@ -69,6 +69,42 @@ class NonRetryableSummaryError(RuntimeError):
     """A deterministic response-contract failure that retries cannot repair."""
 
 
+def m2_decoding_variants(m2: Mapping[str, Any]) -> tuple[tuple[str, dict[str, Any]], ...]:
+    """Return the immutable primary and completion-overflow decoding identities."""
+    primary = dict(m2["decoding"])
+    overflow_control = m2.get("overflow_decoding")
+    if overflow_control != {"max_output_tokens": M2_EMBEDDING_MAX_TOKENS}:
+        raise ContractError("M2 overflow decoding drifted from the 8,192-token recovery control.")
+    overflow = {**primary, **dict(overflow_control)}
+    if int(primary["max_output_tokens"]) != 4096:
+        raise ContractError("M2 primary decoding must preserve the completed 4,096-token cache identity.")
+    return (("primary_4096", primary), ("overflow_8192", overflow))
+
+
+def summary_shard_for_key(cache_key: str, shard_count: int) -> int:
+    """Assign one immutable summary identity to exactly one deterministic shard."""
+    if not re.fullmatch(r"[0-9a-f]{64}", cache_key) or shard_count < 1:
+        raise ContractError("M2 summary shard assignment requires a SHA-256 key and positive count.")
+    return int(cache_key[:16], 16) % shard_count
+
+
+def exact_summary_payload_is_reusable(
+    payload: Mapping[str, Any],
+    *,
+    source_text: str,
+    token_counter: Callable[[str], int],
+) -> bool:
+    """Admit a prior cache row only when it exactly preserves the grouped source."""
+    summary = payload.get("summary")
+    if not isinstance(summary, str) or summary.strip() != source_text.strip():
+        return False
+    try:
+        token_counter(summary)
+    except NonRetryableSummaryError:
+        return False
+    return True
+
+
 def validate_on_premise_api_base(api_base: str) -> str:
     """Reject public, credential-bearing, TLS-proxied, or non-HTTP summary endpoints."""
     parsed = urlparse(api_base)
@@ -615,11 +651,24 @@ def run_m2_task(
     client: OnPremiseSummaryClient | None = None,
     embed_summaries: bool = True,
     summary_token_counter: Callable[[str], int] | None = None,
+    summary_shard_index: int | None = None,
+    summary_shard_count: int | None = None,
 ) -> dict[str, Any]:
     """Generate/cache one-pass summaries and embed the stage-authorized conditions."""
     spec = load_final_m23_authorization(config_path, repository_root=repository_root)
     if task not in spec.tasks or len(source_git_commit) != 40:
         raise ContractError("M2 task or source commit is invalid.")
+    sharded = summary_shard_index is not None or summary_shard_count is not None
+    configured_shards = int(spec.m2["execution"]["summary_shards_per_task"])
+    if sharded and (
+        summary_shard_index is None
+        or summary_shard_count != configured_shards
+        or summary_shard_index not in range(configured_shards)
+        or embed_summaries
+    ):
+        raise ContractError(
+            "M2 summary sharding requires the locked shard count, a valid index, and summaries-only mode."
+        )
     m1 = load_final_m1_authorization(spec.m1_config_path, repository_root=repository_root)
     rows = m2_stage_rows(read_final_task_texts(m1, task), spec=spec, stage=stage)
     if not rows:
@@ -631,10 +680,11 @@ def run_m2_task(
     model_revision_hash = summary_client.model_revision_hash()
     prompt = str(spec.m2["prompt"])
     prompt_hash = stable_hash({"version": spec.m2["prompt_version"], "prompt": prompt})
-    decoding = dict(spec.m2["decoding"])
-    decoding_hash = stable_hash(decoding)
+    decoding_variants = m2_decoding_variants(spec.m2)
+    decoding_hashes = {name: stable_hash(decoding) for name, decoding in decoding_variants}
     concurrent_requests = int(spec.m2["execution"]["concurrent_requests"])
     request_retries = int(spec.m2["execution"]["request_retries"])
+    progress_interval = int(spec.m2["execution"]["progress_interval_rows"])
     token_counter = summary_token_counter or LocalSummaryTokenValidator(
         model_root / spec.model_directory_name,
         maximum_tokens=M2_EMBEDDING_MAX_TOKENS,
@@ -642,8 +692,10 @@ def run_m2_task(
     cache = SummaryCache(spec.private_root / "m2" / "summaries" / task)
     representation_keys: dict[str, str] = {}
     payloads_by_key: dict[str, dict[str, Any]] = {}
-    pending_by_key: dict[str, tuple[str, dict[str, Any]]] = {}
+    pending_by_key: dict[str, tuple[str, dict[str, Any], dict[str, Any]]] = {}
     reused = 0
+    rejected_existing = 0
+    selected_source_rows = 0
     started = time.perf_counter()
     for row in rows:
         label = condition_label(row)
@@ -651,43 +703,92 @@ def run_m2_task(
         source_hash = stable_hash(
             {"schema": M2_SOURCE_COMPACTION_SCHEMA, "source_text": source_text}
         )
-        key = summary_cache_key(
-            source_hash=source_hash,
-            condition=label,
-            prompt_hash=prompt_hash,
-            model_revision_hash=model_revision_hash,
-            decoding_hash=decoding_hash,
-        )
-        expected = {
-            "cache_key": key,
-            "source_hash": source_hash,
-            "condition": label,
-            "prompt_hash": prompt_hash,
-            "model_revision_hash": model_revision_hash,
-            "decoding_hash": decoding_hash,
-            "source_compaction_schema": M2_SOURCE_COMPACTION_SCHEMA,
-        }
-        if key not in payloads_by_key and key not in pending_by_key:
-            payload = cache.load(key, expected)
+        identities: list[tuple[str, str, dict[str, Any], dict[str, Any]]] = []
+        for variant_name, variant_decoding in decoding_variants:
+            decoding_hash = decoding_hashes[variant_name]
+            key = summary_cache_key(
+                source_hash=source_hash,
+                condition=label,
+                prompt_hash=prompt_hash,
+                model_revision_hash=model_revision_hash,
+                decoding_hash=decoding_hash,
+            )
+            identities.append(
+                (
+                    variant_name,
+                    key,
+                    {
+                        "cache_key": key,
+                        "source_hash": source_hash,
+                        "condition": label,
+                        "prompt_hash": prompt_hash,
+                        "model_revision_hash": model_revision_hash,
+                        "decoding_hash": decoding_hash,
+                        "source_compaction_schema": M2_SOURCE_COMPACTION_SCHEMA,
+                    },
+                    variant_decoding,
+                )
+            )
+        overflow_key = identities[-1][1]
+        if sharded and summary_shard_for_key(overflow_key, configured_shards) != summary_shard_index:
+            continue
+        selected_source_rows += 1
+        representation_key = str(row["representation_key"])
+        if representation_key in representation_keys:
+            continue
+        selected_key: str | None = None
+        for _, key, expected, _ in identities:
+            if key in payloads_by_key:
+                selected_key = key
+                break
+            try:
+                payload = cache.load(key, expected)
+            except ContractError as exc:
+                if "empty, truncated, or hash-mismatched" not in str(exc):
+                    raise
+                rejected_existing += 1
+                continue
             if payload is None:
-                pending_by_key[key] = (source_text, expected)
-            else:
-                token_counter(str(payload["summary"]))
-                payloads_by_key[key] = payload
-                reused += 1
-        representation_keys[str(row["representation_key"])] = key
+                continue
+            if not exact_summary_payload_is_reusable(
+                payload,
+                source_text=source_text,
+                token_counter=token_counter,
+            ):
+                rejected_existing += 1
+                continue
+            payloads_by_key[key] = payload
+            reused += 1
+            selected_key = key
+            break
+        if selected_key is None:
+            _, selected_key, expected, overflow_decoding = identities[-1]
+            pending_by_key.setdefault(
+                selected_key,
+                (source_text, expected, overflow_decoding),
+            )
+        representation_keys[representation_key] = selected_key
+    if embed_summaries and pending_by_key:
+        raise ContractError(
+            "M2 embedding requires every adaptive summary cache row to be complete before GPU work."
+        )
+    completed_new = 0
     if pending_by_key:
         failures: list[BaseException] = []
 
         def generate(cache_key: str) -> tuple[str, dict[str, Any]]:
-            source_text, expected = pending_by_key[cache_key]
+            source_text, expected, generation_decoding = pending_by_key[cache_key]
             generation = _summarize_with_retries(
                 summary_client,
                 system_prompt=prompt,
                 source_text=source_text,
-                decoding=decoding,
+                decoding=generation_decoding,
                 retries=request_retries,
             )
+            if generation.summary.strip() != source_text.strip():
+                raise NonRetryableSummaryError(
+                    "M2 assistant output did not exactly copy the deterministic grouped source."
+                )
             summary_token_count = token_counter(generation.summary)
             return cache_key, {
                 **expected,
@@ -698,18 +799,21 @@ def run_m2_task(
                 "completion_tokens": generation.completion_tokens,
                 "embedding_token_count": summary_token_count,
                 "embedding_max_tokens": M2_EMBEDDING_MAX_TOKENS,
+                "completion_budget_tokens": int(generation_decoding["max_output_tokens"]),
             }
 
         with ThreadPoolExecutor(max_workers=min(concurrent_requests, len(pending_by_key))) as executor:
             futures = {executor.submit(generate, key): key for key in pending_by_key}
-            completed_new = 0
             for future in as_completed(futures):
                 try:
                     key, payload = future.result()
                     cache.store(key, payload)
                     payloads_by_key[key] = payload
                     completed_new += 1
-                    if completed_new % 25 == 0 or completed_new == len(pending_by_key):
+                    if completed_new % progress_interval == 0 or completed_new == len(pending_by_key):
+                        elapsed = max(time.perf_counter() - started, 1e-9)
+                        rate = completed_new / elapsed
+                        remaining = len(pending_by_key) - completed_new
                         print(
                             json.dumps(
                                 {
@@ -719,6 +823,11 @@ def run_m2_task(
                                     "completed_new_cache_rows": completed_new,
                                     "pending_new_cache_rows": len(pending_by_key),
                                     "reused_cache_rows": reused,
+                                    "remaining_new_cache_rows": remaining,
+                                    "cache_rows_per_hour": rate * 3600.0,
+                                    "estimated_remaining_seconds": remaining / rate if rate else None,
+                                    "summary_shard_index": summary_shard_index,
+                                    "summary_shard_count": summary_shard_count,
                                 },
                                 sort_keys=True,
                             ),
@@ -767,22 +876,37 @@ def run_m2_task(
             )
             for label in labels
         ]
+    completion_budget_counts = Counter(
+        int(payload.get("completion_budget_tokens", 4096)) for payload in payloads_by_key.values()
+    )
     report = {
         "status": "PASS",
         "experiment_id": spec.experiment_id,
         "source_git_commit": source_git_commit,
         "stage": stage,
         "task": task,
-        "summaries": len(rows),
+        "summaries": selected_source_rows,
         "summary_cache_rows_reused": reused,
-        "summary_rows_generated_this_attempt": len(pending_by_key),
+        "summary_rows_generated_this_attempt": completed_new,
+        "summary_cache_rows_rejected_for_exact_fidelity": rejected_existing,
+        "summary_shard_index": summary_shard_index,
+        "summary_shard_count": summary_shard_count,
+        "summary_shard_complete": sharded,
         "source_history_policy": str(spec.m2["source_history_policy"]),
         "source_compaction_schema": M2_SOURCE_COMPACTION_SCHEMA,
         "summary_cache_schema": M2_SUMMARY_CACHE_SCHEMA,
         "embedding_summary_max_tokens": M2_EMBEDDING_MAX_TOKENS,
         "maximum_embedding_summary_tokens": max(
-            int(payload["embedding_token_count"]) for payload in payloads_by_key.values()
+            (int(payload["embedding_token_count"]) for payload in payloads_by_key.values()),
+            default=None,
         ),
+        "completion_budget_cache_rows": {
+            str(budget): count for budget, count in sorted(completion_budget_counts.items())
+        },
+        "primary_completion_budget_tokens": 4096,
+        "overflow_completion_budget_tokens": M2_EMBEDDING_MAX_TOKENS,
+        "adaptive_completion_policy": "reuse_exact_4096_else_generate_exact_8192",
+        "exact_grouped_source_copy_required": True,
         "concurrent_summary_requests": concurrent_requests,
         "request_retries": request_retries,
         "summary_cache_key_fields": [
@@ -801,7 +925,8 @@ def run_m2_task(
         "on_premise_only": True,
         "external_api_used": False,
         "deterministic_decoding": True,
-        "thinking_disabled": decoding["chat_template_kwargs"]["enable_thinking"] is False,
+        "thinking_disabled": spec.m2["decoding"]["chat_template_kwargs"]["enable_thinking"]
+        is False,
         "summary_stage_complete": True,
         "embedding_stage_complete": embed_summaries,
         "embedding_model": identity.repository if identity is not None else None,
@@ -812,7 +937,12 @@ def run_m2_task(
     }
     text = json.dumps(report, indent=2, sort_keys=True) + "\n"
     assert_privacy_safe_report(text)
-    suffix = stage if embed_summaries else f"{stage}_summaries"
+    if sharded:
+        suffix = (
+            f"{stage}_summaries_shard_{summary_shard_index:02d}_of_{summary_shard_count:02d}"
+        )
+    else:
+        suffix = stage if embed_summaries else f"{stage}_summaries"
     report_path = spec.aggregate_root / "m2" / "tasks" / f"{task}_{suffix}.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     if report_path.is_file():

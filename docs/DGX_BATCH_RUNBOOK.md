@@ -1019,3 +1019,101 @@ and versions the transform/cache. Only `finish_reason=stop` summaries that fit t
 8,192-token embedding tokenizer are stored. Progress is aggregate-only every 25 new rows. The new
 summary array reruns M2 only; its dependent embedding and 40-item review-packet jobs start only if
 all four summary tasks succeed.
+
+## Post-529 adaptive sharded M2 recovery
+
+The fidelity-v3 instructions above are historical. At commit `818103e`, jobs 529_0 and 529_1
+reached 12 hours, 529_2 was intentionally canceled after 7h35m, and 529_3 rejected 333 CheXpert
+responses with `finish_reason=length` at 4,096 tokens. Downstream 530/531 were canceled. Preserve
+all statuses, logs, and cache rows; an existing row is only a candidate until its grouped source is
+reconstructed and exact equality plus downstream-token fit are verified.
+
+After the fidelity-v4 source is committed and pushed, load the GitHub key if needed, fast-forward
+the clean DGX checkout, and restore the governed environment:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519_github_dgx
+git pull --ff-only origin main
+git status --short --branch
+
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
+export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
+```
+
+Require an empty queue, clean checkout, governed inputs, and the on-premise endpoint before
+submission:
+
+```bash
+test -z "$(squeue -h -u "$USER")"
+test -z "$(git status --porcelain)"
+test -s "$EHRSHOT_DATA_PATH"
+test -s "$TEMPORAL_EHR_MODEL_ROOT/Qwen3-Embedding-0.6B/MODEL_ARTIFACT_MANIFEST.json"
+curl -fsS --connect-timeout 5 --max-time 20 http://10.45.177.17:8000/v1/models
+```
+
+Submit only through the versioned recovery helper:
+
+```bash
+export PROMPT4_M2_SUMMARY_PARALLELISM=2
+export PROMPT4_M2_EMBED_PARALLELISM=1
+export PROMPT4_SLURM_MAIL_USER=wdelery@mednet.ucla.edu
+
+bash scripts/slurm/submit_prompt4_m2_fidelity_v4.sh
+source outputs/private/prompt4_reference_job_ids.env
+
+squeue -j \
+  "${M2_ARRAY_JOB_ID},${M2_EMBED_ARRAY_JOB_ID},${M2_REVIEW_PREP_JOB_ID}" \
+  -o "%.18i %.12P %.30j %.2t %.10M %.10l %R"
+```
+
+The preflight validates every failed `529_*` sentinel, absence of downstream COMPLETE evidence,
+and canonical M3 470/471. It requires an unused 8,192-token overflow identity and three exact live
+synthetic copies that fit the frozen downstream tokenizer. The submitted summary array contains 32
+indices: task index is `array_index / 8` and shard index is `array_index % 8`, with task order
+`lab_anemia`, `guo_readmission`, `new_hypertension`, `chexpert`. At most two shards run, each with
+four requests, preserving the tested eight-request endpoint load. The 4,096-token identity is not
+changed. Every candidate is reconstructed and reused only if the summary exactly equals its grouped
+source; otherwise the source is generated under the separate 8,192-token identity.
+
+Monitor aggregate-only progress without opening patient-level content:
+
+```bash
+source outputs/private/prompt4_reference_job_ids.env
+bash scripts/slurm/prompt4_status.sh
+
+grep -h '"event": "m2_summary_progress"' \
+  slurm-tehr-final-m2-shard-${M2_ARRAY_JOB_ID}_*.out 2>/dev/null | tail -n 20
+```
+
+Each progress record contains the task, shard, completed and remaining cache rows, rows/hour, and
+ETA. Slurm sends `END`, `FAIL`, `TIME_LIMIT_80`, and `TIME_LIMIT_90` mail through the configured
+cluster mail program. No laptop timer or persistent SSH connection is required.
+
+After the summary array leaves `squeue`, require all 32 shard sentinels before interpreting the
+dependent stages:
+
+```bash
+source outputs/private/prompt4_reference_job_ids.env
+for index in $(seq 0 31); do
+  test -s "outputs/private/run_status/${M2_ARRAY_JOB_ID}_${index}/COMPLETE.json"
+  test ! -e "outputs/private/run_status/${M2_ARRAY_JOB_ID}_${index}/FAILED.json"
+done
+for index in $(seq 0 3); do
+  test -s "outputs/private/run_status/${M2_EMBED_ARRAY_JOB_ID}_${index}/COMPLETE.json"
+  test ! -e "outputs/private/run_status/${M2_EMBED_ARRAY_JOB_ID}_${index}/FAILED.json"
+done
+test -s "outputs/private/run_status/${M2_REVIEW_PREP_JOB_ID}/COMPLETE.json"
+test ! -e "outputs/private/run_status/${M2_REVIEW_PREP_JOB_ID}/FAILED.json"
+```
+
+Only then open the private 40-item review packet and decision template on the DGX and follow the
+reference-finalize instructions above. Do not rerun M3, submit sensitivity, or access held-out test
+data before the manual and automated reference gates pass.
+
+If reference selection later chooses M2, `submit_prompt4_execution.sh sensitivity` automatically
+uses the same 32-index bounded summary array before embedding and fitting the prespecified M2
+sensitivity conditions. Do not substitute the historical whole-task M2 script.

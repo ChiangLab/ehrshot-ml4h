@@ -87,6 +87,15 @@ deterministically within each unchanged window by code/source/unit, preserve dis
 values in first-occurrence order and exact total occurrence counts, use a new prompt/compaction/cache
 identity, reject non-`stop` or over-8,192-token summaries, and rerun only M2 while reusing M3 470/471.
 
+Fidelity-v3 array 529 at commit `818103e` preserved useful cache rows but did not complete: tasks
+0-2 ended with exit 143 at the site limit or explicit cancellation, and task 3 rejected 333
+CheXpert responses with `finish_reason=length` at the 4,096-token ceiling. Jobs 530/531 were
+canceled and all `529_*` sentinels/caches are immutable evidence. The active fidelity-v4 recovery
+keeps the primary 4,096-token cache identity unchanged, reuses a row only after exact grouped-source
+copy and downstream-token validation, writes missing rows under a separate 8,192-token decoding
+identity, and assigns work to eight deterministic shards per task with at most two active shards.
+Do not run M2 from a laptop, rerun M3 470/471, delete prior caches, or access test performance.
+
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those
 files as historical planning records. The sole active implementation prompt is

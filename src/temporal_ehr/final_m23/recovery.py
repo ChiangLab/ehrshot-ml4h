@@ -23,6 +23,7 @@ from temporal_ehr.final_m23.m2 import (
     _feature_sets,
     compact_exact_duplicate_facts,
     group_structured_facts,
+    m2_decoding_variants,
 )
 from temporal_ehr.final_m23.protocol import M3_SEEDS, load_final_m23_authorization
 from temporal_ehr.pilot.cache import atomic_json, file_sha256
@@ -152,6 +153,41 @@ def _validate_fidelity_v3_config_change(
         or current != previous
     ):
         raise ContractError("Fidelity-v3 recovery changed more than its authorized M2 controls.")
+
+
+def _validate_fidelity_v4_config_change(
+    root: Path,
+    old_commit: str,
+    config_path: Path,
+    expected_upstream_sha256: str,
+) -> None:
+    """Allow only adaptive overflow and bounded sharding after failed array 529."""
+    relative = config_path.resolve().relative_to(root.resolve()).as_posix()
+    previous_text = subprocess.run(
+        ["git", "show", f"{old_commit}:{relative}"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if hashlib.sha256(previous_text.encode("utf-8")).hexdigest() != expected_upstream_sha256:
+        raise ContractError("Upstream Prompt 4 fidelity-v4 configuration hash drifted.")
+    previous = yaml.safe_load(previous_text)
+    current = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    previous_m2 = previous["m2"]
+    current_m2 = current["m2"]
+    overflow = current_m2.pop("overflow_decoding", None)
+    shards = current_m2["execution"].pop("summary_shards_per_task", None)
+    interval = current_m2["execution"].pop("progress_interval_rows", None)
+    if (
+        previous_m2["prompt_version"] != "m2_fidelity_v3_grouped_structured"
+        or previous_m2["decoding"]["max_output_tokens"] != 4096
+        or overflow != {"max_output_tokens": 8192}
+        or shards != 8
+        or interval != 25
+        or current != previous
+    ):
+        raise ContractError("Fidelity-v4 recovery changed more than overflow and shard controls.")
 
 
 def _validate_complete_status(root: Path, status_id: str, commit: str, run_kind: str) -> str:
@@ -732,6 +768,198 @@ def validate_prompt4_m2_fidelity_v3_recovery(
         "live_dense_synthetic_summary_sha256": live_summary_hashes,
         "live_dense_synthetic_completion_tokens": live_completion_tokens,
         "live_dense_synthetic_embedding_tokens": live_embedding_tokens,
+        "stable_served_model_identity_hash": model_identity_hash,
+        "m3_rerun_required": False,
+        "test_predictions_or_performance_used": False,
+        "patient_content_included": False,
+    }
+    assert_privacy_safe_report(json.dumps(report, sort_keys=True))
+    return report
+
+
+def validate_prompt4_m2_fidelity_v4_recovery(
+    *,
+    repository_root: Path,
+    config_path: Path,
+    authorization_path: Path,
+    model_root: Path,
+    current_source_git_commit: str,
+    live_endpoint_check: bool,
+) -> dict[str, Any]:
+    """Gate adaptive, sharded recovery after the preserved failed job-529 array."""
+    root = repository_root.resolve()
+    if FULL_COMMIT.fullmatch(current_source_git_commit) is None:
+        raise ContractError("M2 fidelity-v4 recovery requires a full current Git commit.")
+    auth = _load_authorization(root, authorization_path)
+    old_commit = str(auth.get("upstream_source_git_commit", ""))
+    expected_controls = {
+        "preserve_job_529_status_and_caches": True,
+        "preserve_canceled_downstream_jobs": True,
+        "reuse_only_exact_fidelity_v3_completions": True,
+        "primary_cache_identity_unchanged": True,
+        "overflow_completion_tokens": 8192,
+        "overflow_cache_identity_separate": True,
+        "deterministic_shards_per_task": 8,
+        "maximum_active_summary_shards": 2,
+        "concurrent_requests_per_shard": 4,
+        "require_finish_reason_stop": True,
+        "require_exact_grouped_source_copy": True,
+        "require_downstream_8192_token_fit": True,
+        "progress_interval_rows": 25,
+        "rerun_m2": True,
+        "rerun_m3": False,
+        "test_predictions_or_performance_used": False,
+    }
+    expected_jobs = {
+        "failed_m2_summary_array": {
+            "job_id": 529,
+            "indices": [0, 1, 2, 3],
+            "exit_status_by_index": {0: 143, 1: 143, 2: 143, 3: 1},
+        },
+        "canceled_m2_embedding": {"job_id": 530},
+        "canceled_m2_review": {"job_id": 531},
+        "m3_preparation": {"job_id": 470, "indices": [0, 1, 2, 3]},
+        "m3_seed_array": {"job_id": 471, "indices": list(range(12))},
+    }
+    if (
+        auth.get("version") != 4
+        or auth.get("mode") != "M2_FIDELITY_V4_SHARDED_OVERFLOW_RECOVERY"
+        or auth.get("experiment_id") != "locked_four_task_m2_m3_v1"
+        or old_commit != "818103ea4851081ab827529781efb9f526044765"
+        or current_source_git_commit == old_commit
+        or auth.get("controls") != expected_controls
+        or auth.get("source_jobs") != expected_jobs
+    ):
+        raise ContractError("Prompt 4 M2 fidelity-v4 recovery authorization drifted.")
+
+    spec = load_final_m23_authorization(config_path, repository_root=root)
+    _validate_fidelity_v4_config_change(
+        root,
+        old_commit,
+        config_path,
+        str(auth.get("upstream_experiment_config_sha256", "")),
+    )
+    failed_status_hashes = {
+        f"529_{index}": _validate_failed_status(
+            root,
+            f"529_{index}",
+            old_commit,
+            "final_m2_summary_reference",
+            int(expected_jobs["failed_m2_summary_array"]["exit_status_by_index"][index]),
+        )
+        for index in range(4)
+    }
+    for downstream_id in ("530", "531"):
+        status_root = root / "outputs/private/run_status"
+        names = [downstream_id, *(f"{downstream_id}_{index}" for index in range(4))]
+        if any((status_root / name / "COMPLETE.json").exists() for name in names):
+            raise ContractError(
+                f"Canceled downstream job {downstream_id} unexpectedly has COMPLETE evidence."
+            )
+
+    m3_status_hashes = {
+        f"470_{index}": _validate_complete_status(
+            root,
+            f"470_{index}",
+            "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+            "final_m3_prepare_reference",
+        )
+        for index in range(4)
+    }
+    m3_status_hashes.update(
+        {
+            f"471_{index}": _validate_complete_status(
+                root,
+                f"471_{index}",
+                "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+                "final_m3_task_seed_reference",
+            )
+            for index in range(12)
+        }
+    )
+
+    prompt_hash = stable_hash(
+        {"version": spec.m2["prompt_version"], "prompt": spec.m2["prompt"]}
+    )
+    variants = m2_decoding_variants(spec.m2)
+    decoding_hashes = {name: stable_hash(decoding) for name, decoding in variants}
+    cache_counts: Counter[str] = Counter()
+    for path in (spec.private_root / "m2" / "summaries").glob("*/rows/*.json"):
+        payload = _json_object(path, "M2 summary cache row")
+        if payload.get("prompt_hash") != prompt_hash:
+            cache_counts["legacy_other_prompt"] += 1
+        elif payload.get("decoding_hash") == decoding_hashes["primary_4096"]:
+            cache_counts["primary_4096_candidates"] += 1
+        elif payload.get("decoding_hash") == decoding_hashes["overflow_8192"]:
+            cache_counts["overflow_8192_candidates"] += 1
+        else:
+            cache_counts["other_decoding"] += 1
+    if cache_counts["primary_4096_candidates"] < 1:
+        raise ContractError("Fidelity-v4 recovery found no preserved 4,096-token candidate rows.")
+    if cache_counts["overflow_8192_candidates"] != 0:
+        raise ContractError("Fidelity-v4 preflight requires an unused overflow cache identity.")
+
+    live_hashes: list[str] = []
+    live_completion_tokens: list[int | None] = []
+    live_embedding_tokens: list[int] = []
+    model_identity_hash = None
+    if live_endpoint_check:
+        client = OnPremiseSummaryClient(
+            api_base=str(spec.m2["api_base"]),
+            model=str(spec.m2["instruction_model"]),
+        )
+        model_identity_hash = client.model_revision_hash()
+        ungrouped = (
+            "[TIME=31_60_DAYS_BEFORE_T]\n"
+            "- LOINC/SYNTHETIC-A | value=0.1 | unit=unit-A | source=measurement\n"
+            "- LOINC/SYNTHETIC-A | value=0.2 | unit=unit-A | source=measurement\n"
+            "- CPT4/SYNTHETIC-B | text_value=present | source=procedure\n"
+            "[TIME=1_30_DAYS_BEFORE_T]\n"
+            "- SNOMED/SYNTHETIC-C | value=2 | unit=unit-C | source=measurement"
+        )
+        grouped = group_structured_facts(ungrouped)
+        overflow_decoding = dict(variants[-1][1])
+        token_validator = LocalSummaryTokenValidator(
+            model_root / spec.model_directory_name,
+            maximum_tokens=M2_EMBEDDING_MAX_TOKENS,
+        )
+        for attempt in range(3):
+            generation = client.summarize_response(
+                system_prompt=str(spec.m2["prompt"]),
+                source_text=grouped,
+                decoding=overflow_decoding,
+            )
+            if generation.summary.strip() != grouped:
+                raise ContractError(
+                    f"Adaptive M2 preflight attempt {attempt + 1} did not copy the grouped source exactly."
+                )
+            live_hashes.append(stable_hash(generation.summary))
+            live_completion_tokens.append(generation.completion_tokens)
+            live_embedding_tokens.append(token_validator(generation.summary))
+
+    report = {
+        "status": "PASS",
+        "mode": "M2_FIDELITY_V4_SHARDED_OVERFLOW_RECOVERY",
+        "source_git_commit": current_source_git_commit,
+        "superseded_m2_git_commit": old_commit,
+        "m3_compute_git_commit": "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+        "preserved_job_529_status_sha256": failed_status_hashes,
+        "canceled_downstream_jobs": [530, 531],
+        "m3_complete_sentinel_sha256": m3_status_hashes,
+        "cache_inventory": dict(sorted(cache_counts.items())),
+        "primary_decoding_hash": decoding_hashes["primary_4096"],
+        "overflow_decoding_hash": decoding_hashes["overflow_8192"],
+        "primary_cache_identity_unchanged": True,
+        "reuse_requires_exact_grouped_source_copy": True,
+        "overflow_completion_tokens": 8192,
+        "summary_shards_per_task": 8,
+        "maximum_active_summary_shards": 2,
+        "concurrent_requests_per_shard": 4,
+        "live_endpoint_check_passed": live_endpoint_check,
+        "live_synthetic_repetitions": 3 if live_endpoint_check else 0,
+        "live_synthetic_summary_sha256": live_hashes,
+        "live_synthetic_completion_tokens": live_completion_tokens,
+        "live_synthetic_embedding_tokens": live_embedding_tokens,
         "stable_served_model_identity_hash": model_identity_hash,
         "m3_rerun_required": False,
         "test_predictions_or_performance_used": False,
