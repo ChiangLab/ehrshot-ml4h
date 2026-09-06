@@ -50,6 +50,7 @@ from temporal_ehr.final_m23.protocol import (
 )
 from temporal_ehr.final_m23.recovery import (
     _audit_invalid_cache_rows,
+    _validate_canceled_or_unstarted_status,
     _validate_failed_status,
     _validate_fidelity_v2_config_change,
     _validate_fidelity_v3_config_change,
@@ -298,6 +299,38 @@ def test_fidelity_v3_recovery_validates_failed_status_without_overwrite(tmp_path
             "a" * 40,
             "final_m2_summary_reference",
             143,
+        )
+
+
+def test_recovery_accepts_hashed_running_only_cancellation_but_never_complete(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "outputs/private/run_status/545_8"
+    directory.mkdir(parents=True)
+    running = {
+        "state": "RUNNING",
+        "git_commit": "a" * 40,
+        "job_id": "545_8",
+        "run_kind": "final_m2_summary_shard_reference",
+    }
+    running_path = directory / "RUNNING.json"
+    running_path.write_text(json.dumps(running), encoding="utf-8")
+    before = running_path.read_bytes()
+    hashes = _validate_canceled_or_unstarted_status(
+        tmp_path,
+        "545_8",
+        "a" * 40,
+        "final_m2_summary_shard_reference",
+    )
+    assert set(hashes) == {"RUNNING.json"}
+    assert running_path.read_bytes() == before
+    (directory / "COMPLETE.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ContractError, match="unexpectedly has COMPLETE"):
+        _validate_canceled_or_unstarted_status(
+            tmp_path,
+            "545_8",
+            "a" * 40,
+            "final_m2_summary_shard_reference",
         )
 
 

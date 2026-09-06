@@ -24,7 +24,7 @@ four active shards, and two requests per shard keep eight total endpoint request
 each Slurm task's exposure to the 12-hour site limit. Summary-only shards reserve four CPUs and
 16 GB each because inference remains on the separate vLLM machine.
 
-Local validation passed (161 synthetic tests plus tracked-source Ruff, shell syntax, context, and
+Local validation passed (162 synthetic tests plus tracked-source Ruff, shell syntax, context, and
 privacy/safety checks). Commit and push this source, pull it into a clean DGX checkout, export the
 project/model/data variables, and run:
 

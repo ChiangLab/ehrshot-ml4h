@@ -221,5 +221,5 @@ Status date: 2026-09-06
   and the unchanged 8,192-token embedding limit. Work is split into 16 shards per task, four active
   with two requests each; total endpoint concurrency remains eight while each Slurm job becomes
   smaller. Earlier cache rows and job evidence are preserved but cannot satisfy fidelity-v6 keys.
-  The full 161-test local synthetic suite, tracked-source Ruff checks, changed-shell syntax checks,
+  The full 162-test local synthetic suite, tracked-source Ruff checks, changed-shell syntax checks,
   durable-context check, and pre-push privacy/safety check pass; governed DGX validation is pending.

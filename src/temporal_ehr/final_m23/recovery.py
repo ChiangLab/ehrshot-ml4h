@@ -336,6 +336,38 @@ def _validate_failed_status(
     }
 
 
+def _validate_canceled_or_unstarted_status(
+    root: Path,
+    status_id: str,
+    commit: str,
+    run_kind: str,
+) -> dict[str, str]:
+    """Hash any non-complete cancellation evidence without inferring success."""
+    directory = root / "outputs/private/run_status" / status_id
+    if (directory / "COMPLETE.json").exists():
+        raise ContractError(f"Canceled job {status_id} unexpectedly has COMPLETE evidence.")
+    if (directory / "FAILED.json").is_file():
+        failed = _json_object(directory / "FAILED.json", f"job-{status_id} FAILED sentinel")
+        return _validate_failed_status(
+            root,
+            status_id,
+            commit,
+            run_kind,
+            int(failed.get("exit_status", -1)),
+        )
+    running_path = directory / "RUNNING.json"
+    if running_path.is_file():
+        running = _json_object(running_path, f"job-{status_id} RUNNING sentinel")
+        if (
+            running.get("state") != "RUNNING"
+            or running.get("git_commit") != commit
+            or running.get("run_kind") != run_kind
+        ):
+            raise ContractError(f"Canceled job {status_id} has invalid non-final provenance.")
+        return {"RUNNING.json": file_sha256(running_path)}
+    return {}
+
+
 def _audit_invalid_cache_rows(root: Path) -> dict[str, Any]:
     summary_root = root / "outputs/private/final/locked_four_task_m2_m3_v1/m2/summaries"
     counts: Counter[str] = Counter()
@@ -1411,24 +1443,17 @@ def validate_prompt4_m2_fidelity_v6_recovery(
     if not all(failure_modes[name] for name in ("downstream_context", "exact_copy")):
         raise ContractError("Job 545 evidence must contain both documented failure modes.")
 
-    observed_terminal_status_hashes: dict[str, str] = {}
+    observed_noncomplete_status_hashes: dict[str, dict[str, str]] = {}
     for index in range(8, 32):
         status_id = f"545_{index}"
-        directory = root / "outputs/private/run_status" / status_id
-        if (directory / "COMPLETE.json").exists():
-            raise ContractError(f"Canceled job {status_id} unexpectedly has COMPLETE evidence.")
-        if (directory / "FAILED.json").is_file():
-            failed = _json_object(directory / "FAILED.json", f"job-{status_id} FAILED sentinel")
-            hashes = _validate_failed_status(
-                root,
-                status_id,
-                old_commit,
-                "final_m2_summary_shard_reference",
-                int(failed.get("exit_status", -1)),
-            )
-            observed_terminal_status_hashes[status_id] = hashes["FAILED.json"]
-        elif (directory / "RUNNING.json").exists():
-            raise ContractError(f"Canceled job {status_id} has no final FAILED sentinel.")
+        hashes = _validate_canceled_or_unstarted_status(
+            root,
+            status_id,
+            old_commit,
+            "final_m2_summary_shard_reference",
+        )
+        if hashes:
+            observed_noncomplete_status_hashes[status_id] = hashes
 
     for downstream_id in ("548", "549"):
         status_root = root / "outputs/private/run_status"
@@ -1538,7 +1563,7 @@ def validate_prompt4_m2_fidelity_v6_recovery(
         "superseded_m2_git_commit": old_commit,
         "m3_compute_git_commit": "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
         "required_failed_job_545_status_sha256": failed_status_hashes,
-        "observed_canceled_job_545_status_sha256": observed_terminal_status_hashes,
+        "observed_canceled_job_545_status_sha256": observed_noncomplete_status_hashes,
         "job_545_failure_log_sha256": failure_log_hashes,
         "job_545_failure_mode_shards": dict(sorted(failure_modes.items())),
         "canceled_downstream_jobs": [548, 549],
