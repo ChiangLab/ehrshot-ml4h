@@ -6,7 +6,9 @@ import hashlib
 import json
 import re
 import subprocess
+import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -17,10 +19,12 @@ from temporal_ehr.final_m23.m2 import (
     M2_EMBEDDING_MAX_TOKENS,
     M2_SOURCE_COMPACTION_SCHEMA,
     M2_SUMMARY_CACHE_SCHEMA,
+    M2_SUMMARY_VALIDATION_SCHEMA,
     NULL_LIKE_SUMMARIES,
     LocalSummaryTokenValidator,
     OnPremiseSummaryClient,
     _feature_sets,
+    _generate_bounded_summary_with_attempts,
     compact_exact_duplicate_facts,
     group_structured_facts,
     m2_decoding_variants,
@@ -212,6 +216,81 @@ def _validate_fidelity_v5_config_change(
     extended = current["m2"].pop("extended_decoding", None)
     if extended != {"max_output_tokens": 16384} or current != previous:
         raise ContractError("Fidelity-v5 recovery changed more than the extended generation cap.")
+
+
+def _validate_fidelity_v6_config_change(
+    root: Path,
+    old_commit: str,
+    config_path: Path,
+    expected_upstream_sha256: str,
+) -> None:
+    """Allow only bounded-summary and smaller-shard controls after failed array 545."""
+    relative = config_path.resolve().relative_to(root.resolve()).as_posix()
+    previous_text = subprocess.run(
+        ["git", "show", f"{old_commit}:{relative}"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if hashlib.sha256(previous_text.encode("utf-8")).hexdigest() != expected_upstream_sha256:
+        raise ContractError("Upstream Prompt 4 fidelity-v6 configuration hash drifted.")
+    previous = yaml.safe_load(previous_text)
+    current = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    previous_m2 = previous["m2"]
+    current_m2 = current["m2"]
+    previous_controls = {
+        "prompt_version": previous_m2.pop("prompt_version"),
+        "prompt": previous_m2.pop("prompt"),
+        "max_output_tokens": previous_m2["decoding"].pop("max_output_tokens"),
+        "overflow_decoding": previous_m2.pop("overflow_decoding"),
+        "extended_decoding": previous_m2.pop("extended_decoding"),
+        "concurrent_requests": previous_m2["execution"].pop("concurrent_requests"),
+        "summary_shards_per_task": previous_m2["execution"].pop(
+            "summary_shards_per_task"
+        ),
+    }
+    current_controls = {
+        "prompt_version": current_m2.pop("prompt_version"),
+        "prompt": current_m2.pop("prompt"),
+        "max_output_tokens": current_m2["decoding"].pop("max_output_tokens"),
+        "overflow_decoding": current_m2.pop("overflow_decoding", None),
+        "extended_decoding": current_m2.pop("extended_decoding", None),
+        "concurrent_requests": current_m2["execution"].pop("concurrent_requests"),
+        "generation_contract_attempts": current_m2["execution"].pop(
+            "generation_contract_attempts", None
+        ),
+        "summary_shards_per_task": current_m2["execution"].pop(
+            "summary_shards_per_task"
+        ),
+    }
+    if (
+        previous_controls
+        != {
+            "prompt_version": "m2_fidelity_v3_grouped_structured",
+            "prompt": previous_controls["prompt"],
+            "max_output_tokens": 4096,
+            "overflow_decoding": {"max_output_tokens": 8192},
+            "extended_decoding": {"max_output_tokens": 16384},
+            "concurrent_requests": 4,
+            "summary_shards_per_task": 8,
+        }
+        or not isinstance(previous_controls["prompt"], str)
+        or current_controls["prompt_version"]
+        != "m2_fidelity_v6_bounded_structured_summary"
+        or not isinstance(current_controls["prompt"], str)
+        or "Summarize this ordered strictly pre-prediction record once" not in current_controls["prompt"]
+        or "safely below the downstream 8,192-token embedding context"
+        not in current_controls["prompt"]
+        or current_controls["max_output_tokens"] != 6144
+        or current_controls["overflow_decoding"] is not None
+        or current_controls["extended_decoding"] is not None
+        or current_controls["concurrent_requests"] != 2
+        or current_controls["generation_contract_attempts"] != 3
+        or current_controls["summary_shards_per_task"] != 16
+        or current != previous
+    ):
+        raise ContractError("Fidelity-v6 recovery changed more than its authorized M2 controls.")
 
 
 def _validate_complete_status(root: Path, status_id: str, commit: str, run_kind: str) -> str:
@@ -1222,6 +1301,270 @@ def validate_prompt4_m2_fidelity_v5_recovery(
         "live_synthetic_summary_sha256": live_hashes,
         "live_synthetic_completion_tokens": live_completion_tokens,
         "live_synthetic_embedding_tokens": live_embedding_tokens,
+        "stable_served_model_identity_hash": model_identity_hash,
+        "m3_rerun_required": False,
+        "test_predictions_or_performance_used": False,
+        "patient_content_included": False,
+    }
+    assert_privacy_safe_report(json.dumps(report, sort_keys=True))
+    return report
+
+
+def validate_prompt4_m2_fidelity_v6_recovery(
+    *,
+    repository_root: Path,
+    config_path: Path,
+    authorization_path: Path,
+    model_root: Path,
+    current_source_git_commit: str,
+    live_endpoint_check: bool,
+) -> dict[str, Any]:
+    """Gate bounded real summaries after job 545 proved exact copying infeasible."""
+    root = repository_root.resolve()
+    if FULL_COMMIT.fullmatch(current_source_git_commit) is None:
+        raise ContractError("M2 fidelity-v6 recovery requires a full current Git commit.")
+    auth = _load_authorization(root, authorization_path)
+    old_commit = str(auth.get("upstream_source_git_commit", ""))
+    failed_indices = list(range(8))
+    expected_controls = {
+        "preserve_job_545_status_logs_and_caches": True,
+        "preserve_canceled_downstream_jobs": True,
+        "new_bounded_summary_cache_identity": True,
+        "bounded_generation_tokens": 6144,
+        "downstream_embedding_tokens_unchanged": 8192,
+        "deterministic_shards_per_task": 16,
+        "maximum_active_summary_shards": 4,
+        "concurrent_requests_per_shard": 2,
+        "maximum_total_endpoint_requests": 8,
+        "generation_contract_attempts": 3,
+        "require_finish_reason_stop": True,
+        "require_row_level_fidelity": True,
+        "require_downstream_8192_token_fit": True,
+        "require_manual_40_history_review": True,
+        "rerun_m2": True,
+        "rerun_m3": False,
+        "test_predictions_or_performance_used": False,
+    }
+    expected_jobs = {
+        "failed_m2_summary_shards": {
+            "job_id": 545,
+            "required_indices": failed_indices,
+            "exit_status_by_index": {index: 1 for index in failed_indices},
+            "failure_reason": "exact_copy_or_downstream_context_incompatibility",
+        },
+        "canceled_or_unstarted_m2_summary_indices": {
+            "job_id": 545,
+            "indices": list(range(8, 32)),
+        },
+        "canceled_m2_embedding": {"job_id": 548},
+        "canceled_m2_review": {"job_id": 549},
+        "m3_preparation": {"job_id": 470, "indices": [0, 1, 2, 3]},
+        "m3_seed_array": {"job_id": 471, "indices": list(range(12))},
+    }
+    if (
+        auth.get("version") != 6
+        or auth.get("mode") != "M2_FIDELITY_V6_BOUNDED_SUMMARY_RECOVERY"
+        or auth.get("experiment_id") != "locked_four_task_m2_m3_v1"
+        or old_commit != "223acb0d1082c0440c03bd87b7ac7e3022df2b83"
+        or current_source_git_commit == old_commit
+        or auth.get("controls") != expected_controls
+        or auth.get("source_jobs") != expected_jobs
+    ):
+        raise ContractError("Prompt 4 M2 fidelity-v6 recovery authorization drifted.")
+
+    spec = load_final_m23_authorization(config_path, repository_root=root)
+    _validate_fidelity_v6_config_change(
+        root,
+        old_commit,
+        config_path,
+        str(auth.get("upstream_experiment_config_sha256", "")),
+    )
+
+    failed_status_hashes = {
+        f"545_{index}": _validate_failed_status(
+            root,
+            f"545_{index}",
+            old_commit,
+            "final_m2_summary_shard_reference",
+            1,
+        )
+        for index in failed_indices
+    }
+    failure_log_hashes: dict[str, str] = {}
+    failure_modes: Counter[str] = Counter()
+    for index in failed_indices:
+        log_path = root / f"slurm-tehr-final-m2-shard-545_{index}.out"
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+        context_failure = (
+            "M2 summary exceeds the frozen downstream 8,192-token embedding context."
+            in text
+        )
+        copy_failure = (
+            "M2 assistant output did not exactly copy the deterministic grouped source."
+            in text
+        )
+        if not context_failure and not copy_failure:
+            raise ContractError(f"Job 545_{index} lacks an authorized fidelity-v5 failure mode.")
+        failure_modes["downstream_context"] += int(context_failure)
+        failure_modes["exact_copy"] += int(copy_failure)
+        failure_log_hashes[f"545_{index}"] = file_sha256(log_path)
+    if not all(failure_modes[name] for name in ("downstream_context", "exact_copy")):
+        raise ContractError("Job 545 evidence must contain both documented failure modes.")
+
+    observed_terminal_status_hashes: dict[str, str] = {}
+    for index in range(8, 32):
+        status_id = f"545_{index}"
+        directory = root / "outputs/private/run_status" / status_id
+        if (directory / "COMPLETE.json").exists():
+            raise ContractError(f"Canceled job {status_id} unexpectedly has COMPLETE evidence.")
+        if (directory / "FAILED.json").is_file():
+            failed = _json_object(directory / "FAILED.json", f"job-{status_id} FAILED sentinel")
+            hashes = _validate_failed_status(
+                root,
+                status_id,
+                old_commit,
+                "final_m2_summary_shard_reference",
+                int(failed.get("exit_status", -1)),
+            )
+            observed_terminal_status_hashes[status_id] = hashes["FAILED.json"]
+        elif (directory / "RUNNING.json").exists():
+            raise ContractError(f"Canceled job {status_id} has no final FAILED sentinel.")
+
+    for downstream_id in ("548", "549"):
+        status_root = root / "outputs/private/run_status"
+        names = [downstream_id, *(f"{downstream_id}_{index}" for index in range(4))]
+        if any((status_root / name / "COMPLETE.json").exists() for name in names):
+            raise ContractError(
+                f"Canceled downstream job {downstream_id} unexpectedly has COMPLETE evidence."
+            )
+
+    m3_status_hashes = {
+        f"470_{index}": _validate_complete_status(
+            root,
+            f"470_{index}",
+            "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+            "final_m3_prepare_reference",
+        )
+        for index in range(4)
+    }
+    m3_status_hashes.update(
+        {
+            f"471_{index}": _validate_complete_status(
+                root,
+                f"471_{index}",
+                "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+                "final_m3_task_seed_reference",
+            )
+            for index in range(12)
+        }
+    )
+
+    prompt_hash = stable_hash(
+        {"version": spec.m2["prompt_version"], "prompt": spec.m2["prompt"]}
+    )
+    variant_name, decoding = m2_decoding_variants(spec.m2)[0]
+    decoding_hash = stable_hash(decoding)
+    cache_inventory: Counter[str] = Counter()
+    for path in (spec.private_root / "m2" / "summaries").glob("*/rows/*.json"):
+        payload = _json_object(path, "M2 summary cache row")
+        if payload.get("prompt_hash") == prompt_hash:
+            cache_inventory["new_bounded_prompt_rows"] += 1
+        else:
+            cache_inventory["preserved_legacy_rows"] += 1
+    if cache_inventory["preserved_legacy_rows"] < 1:
+        raise ContractError("Fidelity-v6 recovery found no preserved legacy M2 cache evidence.")
+    if cache_inventory["new_bounded_prompt_rows"] != 0:
+        raise ContractError("Fidelity-v6 preflight requires an unused bounded-summary identity.")
+
+    live_hashes: list[str] = []
+    live_completion_tokens: list[int | None] = []
+    live_embedding_tokens: list[int] = []
+    live_compression_ratios: list[float] = []
+    live_contract_attempts: list[int] = []
+    model_identity_hash = None
+    live_runtime_seconds = None
+    if live_endpoint_check:
+        client = OnPremiseSummaryClient(
+            api_base=str(spec.m2["api_base"]),
+            model=str(spec.m2["instruction_model"]),
+        )
+        model_identity_hash = client.model_revision_hash()
+        grouped = group_structured_facts(
+            "[TIME=31_60_DAYS_BEFORE_T]\n"
+            "- LOINC/SYNTHETIC-A | value=0.1 | unit=unit-A | source=measurement\n"
+            "- LOINC/SYNTHETIC-A | value=0.2 | unit=unit-A | source=measurement\n"
+            "- CPT4/SYNTHETIC-B | text_value=present | source=procedure\n"
+            "[TIME=1_30_DAYS_BEFORE_T]\n"
+            "- LOINC/SYNTHETIC-A | value=0.3 | unit=unit-A | source=measurement\n"
+            "- SNOMED/SYNTHETIC-C | value=2 | unit=unit-C | source=measurement"
+        )
+        token_validator = LocalSummaryTokenValidator(
+            model_root / spec.model_directory_name,
+            maximum_tokens=M2_EMBEDDING_MAX_TOKENS,
+        )
+
+        def request_once(_: int) -> tuple[Any, dict[str, Any], int]:
+            return _generate_bounded_summary_with_attempts(
+                client,
+                system_prompt=str(spec.m2["prompt"]),
+                source_text=grouped,
+                decoding=decoding,
+                request_retries=int(spec.m2["execution"]["request_retries"]),
+                contract_attempts=int(
+                    spec.m2["execution"]["generation_contract_attempts"]
+                ),
+                token_counter=token_validator,
+                thresholds=spec.m2["fidelity"],
+            )
+
+        started = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(request_once, index) for index in range(8)]
+            for future in as_completed(futures):
+                generation, validation, contract_attempt = future.result()
+                live_hashes.append(stable_hash(generation.summary))
+                live_completion_tokens.append(generation.completion_tokens)
+                live_embedding_tokens.append(int(validation["embedding_token_count"]))
+                live_compression_ratios.append(
+                    float(validation["character_compression_ratio"])
+                )
+                live_contract_attempts.append(contract_attempt)
+        live_runtime_seconds = time.perf_counter() - started
+
+    report = {
+        "status": "PASS",
+        "mode": "M2_FIDELITY_V6_BOUNDED_SUMMARY_RECOVERY",
+        "source_git_commit": current_source_git_commit,
+        "superseded_m2_git_commit": old_commit,
+        "m3_compute_git_commit": "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+        "required_failed_job_545_status_sha256": failed_status_hashes,
+        "observed_canceled_job_545_status_sha256": observed_terminal_status_hashes,
+        "job_545_failure_log_sha256": failure_log_hashes,
+        "job_545_failure_mode_shards": dict(sorted(failure_modes.items())),
+        "canceled_downstream_jobs": [548, 549],
+        "m3_complete_sentinel_sha256": m3_status_hashes,
+        "cache_inventory": dict(sorted(cache_inventory.items())),
+        "bounded_summary_cache_schema": M2_SUMMARY_CACHE_SCHEMA,
+        "bounded_summary_validation_schema": M2_SUMMARY_VALIDATION_SCHEMA,
+        "bounded_variant_name": variant_name,
+        "bounded_decoding_hash": decoding_hash,
+        "bounded_generation_tokens": 6144,
+        "downstream_embedding_tokens": M2_EMBEDDING_MAX_TOKENS,
+        "summary_shards_per_task": 16,
+        "maximum_active_summary_shards": 4,
+        "concurrent_requests_per_shard": 2,
+        "maximum_total_endpoint_requests": 8,
+        "generation_contract_attempts": 3,
+        "live_endpoint_check_passed": live_endpoint_check,
+        "live_synthetic_requests": 8 if live_endpoint_check else 0,
+        "live_synthetic_summary_sha256": sorted(live_hashes),
+        "live_synthetic_completion_tokens": sorted(
+            value for value in live_completion_tokens if value is not None
+        ),
+        "live_synthetic_embedding_tokens": sorted(live_embedding_tokens),
+        "live_synthetic_character_compression_ratios": sorted(live_compression_ratios),
+        "live_synthetic_contract_attempts": sorted(live_contract_attempts),
+        "live_synthetic_runtime_seconds": live_runtime_seconds,
         "stable_served_model_identity_hash": model_identity_hash,
         "m3_rerun_required": False,
         "test_predictions_or_performance_used": False,

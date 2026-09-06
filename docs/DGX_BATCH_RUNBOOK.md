@@ -766,8 +766,8 @@ bash scripts/slurm/prompt4_status.sh
 ```
 
 The capacity probe uses synthetic text only. When it finishes, require its COMPLETE sentinel and
-inspect `reports/generated/engineering/prompt4_capacity.json`. The committed defaults use four
-concurrent local-LLM requests and M3 embedding batch size 32. Change either only before reference
+inspect `reports/generated/engineering/prompt4_capacity.json`. The current M2 recovery permits at
+most eight concurrent local-LLM requests and retains M3 embedding batch size 32. Change either only before reference
 compute, based on the synthetic throughput and peak-memory evidence, then rerun local checks,
 commit, and push. Do not tune these settings from validation outcome performance.
 
@@ -776,13 +776,13 @@ The safe defaults are shown below; leave them unchanged unless the capacity repo
 inventory justify a higher value:
 
 ```bash
-export PROMPT4_M2_SUMMARY_PARALLELISM=2
+export PROMPT4_M2_SUMMARY_PARALLELISM=4
 export PROMPT4_M2_EMBED_PARALLELISM=1
 export PROMPT4_M3_PREPARE_PARALLELISM=1
 export PROMPT4_M3_TRAIN_PARALLELISM=2
 ```
 
-The submission record preserves these values. Hard caps are respectively 2, 2, 2, and 3, so an
+The submission record preserves these values. Hard caps are respectively 4, 2, 2, and 3, so an
 accidental setting cannot schedule an unbounded array fan-out.
 
 Start reference compute:
@@ -794,14 +794,14 @@ squeue -j "${M2_ARRAY_JOB_ID},${M2_EMBED_ARRAY_JOB_ID},${M2_REVIEW_PREP_JOB_ID},
   -o "%.18i %.12P %.28j %.2t %.10M %.10l %R"
 ```
 
-The M2 summary array uses no DGX GPU, runs two tasks concurrently, and issues four concurrent
-requests per task to the separate vLLM server. Its dependent M2 embedding array requests the DGX
+The M2 summary array uses no DGX GPU, runs four shards concurrently, and issues two concurrent
+requests per shard to the separate vLLM server. Its dependent M2 embedding array requests the DGX
 GPU. M3 first prepares each task's seed-independent source and embedding cache once, then launches
 the 12 task/seed GRU jobs with two active by default. Seed jobs never reload or re-encode Qwen, and
 they project retained windows before padding to reduce memory. This lets remote summary generation,
 M3 preparation, M2 embedding, and small-GRU training overlap where Slurm resources permit without
 writing the same cache concurrently. Override only the documented `PROMPT4_*_PARALLELISM`
-variables after the synthetic capacity report; defaults are 2/1/1/2 for M2 summary, M2 embedding,
+variables after the synthetic capacity report; defaults are 4/1/1/2 for M2 summary, M2 embedding,
 M3 preparation, and M3 training. Once queued, SSH and VPN may be disconnected.
 
 After reference compute leaves `squeue`, reconnect and require its sentinels:
@@ -810,9 +810,11 @@ After reference compute leaves `squeue`, reconnect and require its sentinels:
 cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
 source outputs/private/prompt4_reference_job_ids.env
 
-for index in 0 1 2 3; do
+for index in $(seq 0 $((4 * M2_SUMMARY_SHARDS_PER_TASK - 1))); do
   test -s "outputs/private/run_status/${M2_ARRAY_JOB_ID}_${index}/COMPLETE.json"
   test ! -e "outputs/private/run_status/${M2_ARRAY_JOB_ID}_${index}/FAILED.json"
+done
+for index in 0 1 2 3; do
   test -s "outputs/private/run_status/${M2_EMBED_ARRAY_JOB_ID}_${index}/COMPLETE.json"
   test ! -e "outputs/private/run_status/${M2_EMBED_ARRAY_JOB_ID}_${index}/FAILED.json"
 done
@@ -1083,7 +1085,7 @@ Monitor aggregate-only progress without opening patient-level content:
 
 ```bash
 source outputs/private/prompt4_reference_job_ids.env
-bash scripts/slurm/prompt4_status.sh
+bash scripts/slurm/prompt4_m2_progress.sh
 
 grep -h '"event": "m2_summary_progress"' \
   slurm-tehr-final-m2-shard-${M2_ARRAY_JOB_ID}_*.out 2>/dev/null | tail -n 20
@@ -1115,7 +1117,7 @@ reference-finalize instructions above. Do not rerun M3, submit sensitivity, or a
 data before the manual and automated reference gates pass.
 
 If reference selection later chooses M2, `submit_prompt4_execution.sh sensitivity` automatically
-uses the same 32-index bounded summary array before embedding and fitting the prespecified M2
+uses the same 64-index bounded summary array before embedding and fitting the prespecified M2
 sensitivity conditions. Do not substitute the historical whole-task M2 script.
 
 ## Post-536 extended-generation M2 recovery
@@ -1158,10 +1160,95 @@ export PROMPT4_SLURM_MAIL_USER=wdelery@mednet.ucla.edu
 
 bash scripts/slurm/submit_prompt4_m2_fidelity_v5.sh
 source outputs/private/prompt4_reference_job_ids.env
-bash scripts/slurm/prompt4_status.sh
+bash scripts/slurm/prompt4_m2_progress.sh
 ```
 
 The preflight verifies job-536 length failures, every observed final job-536 sentinel, canceled
 downstream jobs, preserved 4,096/8,192 candidates, an unused 16,384 identity, three exact synthetic
 live calls, the unchanged downstream tokenizer gate, and canonical M3 jobs 470/471. The replacement
 32-index array rechecks all old rows and makes new calls only for unresolved cache identities.
+
+## Post-545 bounded-summary M2 recovery
+
+The fidelity-v5 instructions above are historical. Job 545 established that exact source copying
+cannot simultaneously perform the intended M2 compression and satisfy the frozen 8,192-token
+embedding context: six of the first eight shards failed the downstream token gate, while two failed
+the exact-copy gate. Jobs 545, 548, and 549 and all of their logs, sentinels, and cache rows must
+remain preserved. M3 jobs 470/471 are already complete and must not be rerun.
+
+Fidelity-v6 returns to the prespecified single-pass-summary intervention. It uses one fixed
+6,144-token response budget, deterministic decoding, no thinking, exact time-label order, structured
+fact-only output, per-row code/value/unit/recurrence checks, the original aggregate fidelity gates,
+and the unchanged downstream 8,192-token tokenizer check. It uses 16 deterministic shards per task.
+Four active shards with two requests each cap endpoint concurrency at eight; any row that fails the
+frozen contract receives at most three identical generation attempts. Valid rows are written
+atomically and are reused after interruption. Each summary-only shard reserves four CPUs and 16 GB;
+four active shards therefore reserve 16 CPUs/64 GB on the DGX while vLLM inference remains remote.
+
+Once the fidelity-v6 source is committed and pushed, connect to VPN, SSH to the DGX, and run exactly:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519_github_dgx
+git pull --ff-only origin main
+git status --short --branch
+test -z "$(git status --porcelain)"
+
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
+export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
+export PROMPT4_M2_SUMMARY_PARALLELISM=4
+export PROMPT4_M2_EMBED_PARALLELISM=1
+export PROMPT4_SLURM_MAIL_USER=wdelery@mednet.ucla.edu
+
+bash scripts/slurm/submit_prompt4_m2_fidelity_v6.sh
+source outputs/private/prompt4_reference_job_ids.env
+bash scripts/slurm/prompt4_status.sh
+```
+
+The helper first validates job-545 evidence, the stopped downstream graph, canonical M3 COMPLETE
+sentinels, unused fidelity-v6 cache identity, and eight concurrent synthetic responses. It then
+submits 64 resumable CPU summary shards, four dependent GPU embedding tasks, and one dependent
+manual-review preparation job. Empty `squeue` output is not completion evidence. Monitor with:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+source outputs/private/prompt4_reference_job_ids.env
+squeue -j "${M2_ARRAY_JOB_ID},${M2_EMBED_ARRAY_JOB_ID},${M2_REVIEW_PREP_JOB_ID}" \
+  -o "%.18i %.12P %.30j %.2t %.10M %.10l %R"
+bash scripts/slurm/prompt4_status.sh
+grep '"event": "m2_summary_progress"' \
+  slurm-tehr-final-m2-shard-${M2_ARRAY_JOB_ID}_*.out 2>/dev/null | tail -n 20
+```
+
+After the graph leaves the queue, require all final sentinels:
+
+```bash
+source outputs/private/prompt4_reference_job_ids.env
+ALL_PASS=1
+for index in $(seq 0 63); do
+  test -s "outputs/private/run_status/${M2_ARRAY_JOB_ID}_${index}/COMPLETE.json" &&
+    test ! -e "outputs/private/run_status/${M2_ARRAY_JOB_ID}_${index}/FAILED.json" || ALL_PASS=0
+done
+for index in 0 1 2 3; do
+  test -s "outputs/private/run_status/${M2_EMBED_ARRAY_JOB_ID}_${index}/COMPLETE.json" &&
+    test ! -e "outputs/private/run_status/${M2_EMBED_ARRAY_JOB_ID}_${index}/FAILED.json" || ALL_PASS=0
+done
+test -s "outputs/private/run_status/${M2_REVIEW_PREP_JOB_ID}/COMPLETE.json" || ALL_PASS=0
+test ! -e "outputs/private/run_status/${M2_REVIEW_PREP_JOB_ID}/FAILED.json" || ALL_PASS=0
+test "${ALL_PASS}" -eq 1 && echo "PASS: M2 reference compute and review preparation COMPLETE"
+```
+
+Only after that PASS should the governed 40-item packet be reviewed on DGX:
+
+```text
+outputs/private/final/locked_four_task_m2_m3_v1/m2/fidelity/m2_fidelity_v6_bounded_structured_summary/manual_review_packet.json
+outputs/private/final/locked_four_task_m2_m3_v1/m2/fidelity/m2_fidelity_v6_bounded_structured_summary/manual_review_decisions.json
+```
+
+Set every Boolean decision and `review_complete` explicitly. Then run
+`bash scripts/slurm/submit_prompt4_execution.sh reference-finalize`. A failed M2 fidelity gate makes
+M2 ineligible but does not invalidate the already-complete M1 or M3 reference evidence. Do not
+submit sensitivity or access held-out test data until validation-only approach selection completes.

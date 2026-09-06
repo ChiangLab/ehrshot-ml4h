@@ -116,7 +116,7 @@ def load_final_m23_authorization(
         or m2.get("instruction_model") != "nvidia/Qwen3.6-35B-A3B-NVFP4"
         or m2.get("api_base") != "http://10.45.177.17:8000/v1"
         or m2.get("on_premise_only") is not True
-        or m2.get("prompt_version") != "m2_fidelity_v3_grouped_structured"
+        or m2.get("prompt_version") != "m2_fidelity_v6_bounded_structured_summary"
         or m2.get("reference_condition") != "C1_correct_compact_time"
         or m2.get("fidelity_condition") != "C3_shuffled_earlier_time_labels"
         or int(m2.get("fidelity_seed", -1)) != M3_SEEDS[0]
@@ -132,19 +132,16 @@ def load_final_m23_authorization(
         or decoding.get("chat_template_kwargs") != {"enable_thinking": False}
     ):
         raise ContractError("M2 decoding is not deterministically locked.")
-    overflow_decoding = m2.get("overflow_decoding")
-    if overflow_decoding != {"max_output_tokens": 8192}:
-        raise ContractError("M2 overflow decoding must change only the 8,192-token completion cap.")
-    extended_decoding = m2.get("extended_decoding")
-    if extended_decoding != {"max_output_tokens": 16384}:
-        raise ContractError(
-            "M2 extended decoding must change only the 16,384-token generation cap."
-        )
+    if int(decoding.get("max_output_tokens", 0)) != 6144:
+        raise ContractError("M2 bounded summary decoding must remain at 6,144 tokens.")
+    if "overflow_decoding" in m2 or "extended_decoding" in m2:
+        raise ContractError("M2 bounded summaries use one fixed decoding identity.")
     execution = m2.get("execution")
     if not isinstance(execution, dict) or (
         int(execution.get("concurrent_requests", 0)) not in range(1, 17)
         or int(execution.get("request_retries", -1)) not in range(0, 6)
-        or int(execution.get("summary_shards_per_task", 0)) != 8
+        or int(execution.get("generation_contract_attempts", 0)) != 3
+        or int(execution.get("summary_shards_per_task", 0)) != 16
         or int(execution.get("progress_interval_rows", 0)) not in range(1, 101)
     ):
         raise ContractError("M2 execution concurrency, retry, shard, or progress policy is not safely locked.")

@@ -13,12 +13,15 @@ from temporal_ehr.final_m23.m2 import (
     M2_EMBEDDING_MAX_TOKENS,
     M2_SOURCE_COMPACTION_SCHEMA,
     M2_SUMMARY_CACHE_SCHEMA,
+    M2_SUMMARY_VALIDATION_SCHEMA,
     LocalSummaryTokenValidator,
     NonRetryableSummaryError,
     OnPremiseSummaryClient,
     SummaryCache,
+    _generate_bounded_summary_with_attempts,
     _summarize_with_retries,
     audit_summary_fidelity,
+    bounded_summary_payload_is_reusable,
     build_manual_fidelity_packet,
     compact_exact_duplicate_facts,
     exact_summary_payload_is_reusable,
@@ -28,6 +31,7 @@ from temporal_ehr.final_m23.m2 import (
     m2_source_text,
     summary_cache_key,
     summary_shard_for_key,
+    validate_bounded_summary,
     validate_manual_fidelity_decisions,
     validate_on_premise_api_base,
 )
@@ -51,6 +55,7 @@ from temporal_ehr.final_m23.recovery import (
     _validate_fidelity_v3_config_change,
     _validate_fidelity_v4_config_change,
     _validate_fidelity_v5_config_change,
+    _validate_fidelity_v6_config_change,
     _validate_only_allowed_config_change,
 )
 from temporal_ehr.final_m23.reporting import (
@@ -77,11 +82,12 @@ def test_prompt4_hard_gate_uses_verified_job451_handoff_and_no_test() -> None:
     assert spec.splits == ("train", "validation")
     assert "test" not in spec.splits
     assert spec.m2["decoding"]["chat_template_kwargs"] == {"enable_thinking": False}
-    assert spec.m2["prompt_version"] == "m2_fidelity_v3_grouped_structured"
-    assert spec.m2["decoding"]["max_output_tokens"] == 4096
-    assert spec.m2["overflow_decoding"] == {"max_output_tokens": 8192}
-    assert spec.m2["extended_decoding"] == {"max_output_tokens": 16384}
-    assert spec.m2["execution"]["summary_shards_per_task"] == 8
+    assert spec.m2["prompt_version"] == "m2_fidelity_v6_bounded_structured_summary"
+    assert spec.m2["decoding"]["max_output_tokens"] == 6144
+    assert "overflow_decoding" not in spec.m2
+    assert "extended_decoding" not in spec.m2
+    assert spec.m2["execution"]["generation_contract_attempts"] == 3
+    assert spec.m2["execution"]["summary_shards_per_task"] == 16
 
 
 class _SyntheticSummaryClient(OnPremiseSummaryClient):
@@ -224,12 +230,22 @@ def test_prompt4_fidelity_v4_validator_rejects_superseding_v5_config() -> None:
         )
 
 
-def test_prompt4_fidelity_v5_changes_only_extended_generation_cap() -> None:
-    _validate_fidelity_v5_config_change(
+def test_prompt4_fidelity_v5_validator_rejects_superseding_v6_config() -> None:
+    with pytest.raises(ContractError, match="more than"):
+        _validate_fidelity_v5_config_change(
+            Path.cwd(),
+            "8682cb494b779efd0d6ea16785c08f61702bb4a0",
+            CONFIG,
+            "00a17a0f4c39b0e246bc3ed5e2fc8e26296275cf50d52d75881afc1a34a93980",
+        )
+
+
+def test_prompt4_fidelity_v6_changes_only_bounded_summary_and_scheduling() -> None:
+    _validate_fidelity_v6_config_change(
         Path.cwd(),
-        "8682cb494b779efd0d6ea16785c08f61702bb4a0",
+        "223acb0d1082c0440c03bd87b7ac7e3022df2b83",
         CONFIG,
-        "00a17a0f4c39b0e246bc3ed5e2fc8e26296275cf50d52d75881afc1a34a93980",
+        "3d5319e1aaa12316efe53fd55ee00998815eea232fff9e09556001115159f22e",
     )
 
 
@@ -326,16 +342,12 @@ def test_summary_cache_key_covers_all_required_generation_inputs() -> None:
     assert len(keys) == len(base) + 1
 
 
-def test_m2_adaptive_decoding_preserves_primary_identity_and_separates_overflow() -> None:
+def test_m2_bounded_decoding_uses_one_fixed_identity() -> None:
     variants = m2_decoding_variants(_spec().m2)
-    assert [name for name, _ in variants] == [
-        "primary_4096",
-        "overflow_8192",
-        "extended_16384",
-    ]
-    assert [decoding["max_output_tokens"] for _, decoding in variants] == [4096, 8192, 16384]
+    assert [name for name, _ in variants] == ["bounded_6144"]
+    assert [decoding["max_output_tokens"] for _, decoding in variants] == [6144]
     assert all(decoding["temperature"] == 0.0 for _, decoding in variants)
-    assert len({stable_hash(decoding) for _, decoding in variants}) == 3
+    assert len({stable_hash(decoding) for _, decoding in variants}) == 1
     assert OnPremiseSummaryClient(
         api_base="http://10.45.177.17:8000/v1", model="synthetic"
     ).timeout_seconds == 1200
@@ -343,10 +355,10 @@ def test_m2_adaptive_decoding_preserves_primary_identity_and_separates_overflow(
 
 def test_m2_summary_shards_are_deterministic_complete_and_disjoint() -> None:
     keys = [stable_hash({"synthetic": index}) for index in range(100)]
-    assignments = [summary_shard_for_key(key, 8) for key in keys]
-    assert assignments == [summary_shard_for_key(key, 8) for key in keys]
-    assert set(assignments) == set(range(8))
-    assert sum(assignments.count(index) for index in range(8)) == len(keys)
+    assignments = [summary_shard_for_key(key, 16) for key in keys]
+    assert assignments == [summary_shard_for_key(key, 16) for key in keys]
+    assert set(assignments) == set(range(16))
+    assert sum(assignments.count(index) for index in range(16)) == len(keys)
     with pytest.raises(ContractError):
         summary_shard_for_key("not-a-hash", 8)
 
@@ -375,6 +387,146 @@ def test_m2_reuses_only_exact_downstream_fit_summary_payloads() -> None:
         source_text=source,
         token_counter=reject,
     )
+
+
+def test_m2_bounded_summary_rejects_unsupported_facts_and_preserves_time() -> None:
+    source = (
+        "[TIME=31_60_DAYS_BEFORE_T]\n"
+        "- LOINC/X | values=10,11 | unit=g/dL | source=measurement | occurrences=2\n"
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- CPT4/Y | source=procedure | occurrences=1"
+    )
+    summary = (
+        "[TIME=31_60_DAYS_BEFORE_T]\n"
+        "- LOINC/X | values=10,11 | unit=g/dL | occurrences=2 | trend=increasing\n"
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- CPT4/Y"
+    )
+    validation = validate_bounded_summary(
+        summary,
+        source_text=source,
+        token_counter=lambda value: len(value.split()),
+        thresholds=_fidelity_thresholds(),
+    )
+    payload = {
+        "summary": summary,
+        "bounded_validation_passed": True,
+        "bounded_validation": validation,
+    }
+    assert validation["status"] == "PASS"
+    assert validation["time_label_sequence_exact"] is True
+    assert bounded_summary_payload_is_reusable(
+        payload,
+        source_text=source,
+        token_counter=lambda value: len(value.split()),
+        thresholds=_fidelity_thresholds(),
+    )
+    with pytest.raises(NonRetryableSummaryError, match="unsupported"):
+        validate_bounded_summary(
+            summary.replace("CPT4/Y", "CPT4/INVENTED"),
+            source_text=source,
+            token_counter=lambda value: len(value.split()),
+            thresholds=_fidelity_thresholds(),
+        )
+    with pytest.raises(NonRetryableSummaryError, match="time label"):
+        validate_bounded_summary(
+            summary.replace("31_60", "61_90"),
+            source_text=source,
+            token_counter=lambda value: len(value.split()),
+            thresholds=_fidelity_thresholds(),
+        )
+    with pytest.raises(NonRetryableSummaryError, match="unsupported field"):
+        validate_bounded_summary(
+            summary.replace("- CPT4/Y", "- CPT4/Y | source=procedure"),
+            source_text=source,
+            token_counter=lambda value: len(value.split()),
+            thresholds=_fidelity_thresholds(),
+        )
+    moved = (
+        "[TIME=31_60_DAYS_BEFORE_T]\n"
+        "- CPT4/Y\n"
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        "- LOINC/X | values=10,11 | unit=g/dL | occurrences=2 | trend=increasing"
+    )
+    with pytest.raises(NonRetryableSummaryError, match="time block"):
+        validate_bounded_summary(
+            moved,
+            source_text=source,
+            token_counter=lambda value: len(value.split()),
+            thresholds=_fidelity_thresholds(),
+        )
+
+
+def test_m2_bounded_summary_preserves_structured_text_values() -> None:
+    source = (
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        '- CPT4/Y | text_values=["present","absent"] | source=procedure | occurrences=2'
+    )
+    summary = (
+        "[TIME=1_30_DAYS_BEFORE_T]\n"
+        '- CPT4/Y | text_values=["present","absent"] | occurrences=2'
+    )
+    validation = validate_bounded_summary(
+        summary,
+        source_text=source,
+        token_counter=lambda value: len(value.split()),
+        thresholds=_fidelity_thresholds(),
+    )
+    assert validation["retention"]["text_values"] == 1.0
+    with pytest.raises(NonRetryableSummaryError, match="unsupported"):
+        validate_bounded_summary(
+            summary.replace("absent", "invented"),
+            source_text=source,
+            token_counter=lambda value: len(value.split()),
+            thresholds=_fidelity_thresholds(),
+        )
+
+
+def test_m2_bounded_summary_contract_attempts_are_fixed_and_bounded() -> None:
+    source = "[TIME=1_30_DAYS_BEFORE_T]\n- LOINC/X | values=10 | unit=g/dL | occurrences=1"
+    invalid = "[TIME=1_30_DAYS_BEFORE_T]\n- LOINC/INVENTED"
+    valid = "[TIME=1_30_DAYS_BEFORE_T]\n- LOINC/X | values=10 | unit=g/dL"
+    client = _SyntheticSummaryClient(invalid)
+    responses = iter((invalid, valid))
+    calls = 0
+
+    def response(path, payload=None):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return {
+            "choices": [
+                {"message": {"content": next(responses)}, "finish_reason": "stop"}
+            ]
+        }
+
+    client._request = response  # type: ignore[method-assign]
+    generation, validation, attempt = _generate_bounded_summary_with_attempts(
+        client,
+        system_prompt="frozen prompt",
+        source_text=source,
+        decoding=dict(_spec().m2["decoding"]),
+        request_retries=3,
+        contract_attempts=3,
+        token_counter=lambda value: len(value.split()),
+        thresholds=_fidelity_thresholds(),
+    )
+    assert generation.summary == valid
+    assert validation["status"] == "PASS"
+    assert attempt == 2
+    assert calls == 2
+
+    client = _SyntheticSummaryClient(invalid)
+    with pytest.raises(NonRetryableSummaryError, match="failed all fixed contract attempts"):
+        _generate_bounded_summary_with_attempts(
+            client,
+            system_prompt="frozen prompt",
+            source_text=source,
+            decoding=dict(_spec().m2["decoding"]),
+            request_retries=3,
+            contract_attempts=1,
+            token_counter=lambda value: len(value.split()),
+            thresholds=_fidelity_thresholds(),
+        )
 
 
 def test_m2_embedding_namespace_isolates_source_commits() -> None:
@@ -485,7 +637,8 @@ def test_m2_downstream_token_gate_rejects_over_context() -> None:
     with pytest.raises(RuntimeError, match="8,192-token"):
         validator("one two three four")
     assert M2_EMBEDDING_MAX_TOKENS == 8192
-    assert M2_SUMMARY_CACHE_SCHEMA == "m2_summary_cache_v4_grouped_completion_bound"
+    assert M2_SUMMARY_CACHE_SCHEMA == "m2_summary_cache_v5_bounded_structured"
+    assert M2_SUMMARY_VALIDATION_SCHEMA == "m2_bounded_summary_validation_v1"
 
 
 def test_summary_cache_resumes_exact_rows_and_rejects_drift(tmp_path: Path) -> None:
@@ -931,7 +1084,7 @@ def test_prompt4_m2_fidelity_v4_recovery_is_sharded_resumable_and_notified() -> 
     assert "reusing immutable fidelity-v4 preflight" in submit
     assert "--summary-shard-index" in shard
     assert "--summary-shard-count" in shard
-    assert "#SBATCH --array=0-31%2" in shard
+    assert "#SBATCH --array=0-63%4" in shard
     assert "#SBATCH --time=12:00:00" in shard
     assert "final_initialize" in shard
     assert "final_mark_success" in shard
@@ -962,6 +1115,40 @@ def test_prompt4_m2_fidelity_v5_recovery_preserves_old_tiers_and_extends_generat
     assert "finish_reason='length'" in recovery
     assert 'decoding_hashes["extended_16384"]' in recovery
     assert '"downstream_embedding_tokens": M2_EMBEDDING_MAX_TOKENS' in recovery
+
+
+def test_prompt4_m2_fidelity_v6_uses_bounded_summaries_and_smaller_shards() -> None:
+    submit = Path("scripts/slurm/submit_prompt4_m2_fidelity_v6.sh").read_text(
+        encoding="utf-8"
+    )
+    validator = Path("scripts/validate_prompt4_m2_fidelity_v6_recovery.py").read_text(
+        encoding="utf-8"
+    )
+    assert "prompt4_m2_fidelity_v6_after_545.yaml" in submit
+    assert "validate_prompt4_m2_fidelity_v6_recovery.py" in submit
+    assert "Jobs 545, 548, and 549 must leave the queue" in submit
+    assert "M2_SUMMARY_SHARDS_PER_TASK=16" in submit
+    assert "PROMPT4_M2_SUMMARY_PARALLELISM:-4" in submit
+    assert "M2_MAXIMUM_TOTAL_ENDPOINT_REQUESTS" in submit
+    assert "M3_PREP_ARRAY_JOB_ID=470" in submit
+    assert "M3_ARRAY_JOB_ID=471" in submit
+    assert "validate_prompt4_m2_fidelity_v6_recovery" in validator
+    assert "--live-endpoint-check" in submit
+    assert "26_m3_task_seed_array.sbatch" not in submit
+    shard = Path("scripts/slurm/24c_m2_summary_shard_array.sbatch").read_text(
+        encoding="utf-8"
+    )
+    assert "#SBATCH --array=0-63%4" in shard
+    assert "#SBATCH --cpus-per-task=4" in shard
+    assert "#SBATCH --mem=16G" in shard
+    progress = Path("scripts/slurm/prompt4_m2_progress.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "Summary shards: complete=" in progress
+    assert "Embedding tasks: complete=" in progress
+    assert "m2_summary_progress" in progress
+    assert "scancel" not in progress
+    assert "sbatch" not in progress
 
 
 def test_prompt4_m3_aggregate_supports_explicit_validated_compute_commit() -> None:

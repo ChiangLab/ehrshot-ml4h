@@ -17,6 +17,7 @@ from temporal_ehr.final_m1.embedding import condition_slug
 from temporal_ehr.final_m1.report import fit_condition_scope, paired_contrast
 from temporal_ehr.final_m1.throughput import read_final_task_texts
 from temporal_ehr.final_m23.m2 import (
+    M2_EMBEDDING_MAX_TOKENS,
     M2_SOURCE_COMPACTION_SCHEMA,
     SummaryCache,
     _write_parquet_once,
@@ -145,7 +146,10 @@ def _m2_fidelity_records(
                 (
                     value
                     for value in candidates
-                    if str(value.get("summary", "")).strip() == source_text.strip()
+                    if value.get("bounded_validation_passed") is True
+                    and value.get("bounded_validation", {}).get("status") == "PASS"
+                    and int(value.get("embedding_token_count", M2_EMBEDDING_MAX_TOKENS + 1))
+                    <= M2_EMBEDDING_MAX_TOKENS
                 ),
                 None,
             )

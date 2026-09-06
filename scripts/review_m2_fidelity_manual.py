@@ -18,7 +18,9 @@ from temporal_ehr.pilot.cache import atomic_json, file_sha256
 
 
 def _paths(spec: object) -> tuple[Path, Path, Path]:
-    private_root = spec.private_root / "m2" / "fidelity"  # type: ignore[attr-defined]
+    private_root = (  # type: ignore[attr-defined]
+        spec.private_root / "m2" / "fidelity" / spec.m2["prompt_version"]
+    )
     aggregate = spec.aggregate_root / "m2_manual_fidelity_review.json"  # type: ignore[attr-defined]
     return (
         private_root / "manual_review_packet.json",

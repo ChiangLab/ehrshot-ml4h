@@ -99,9 +99,18 @@ Do not run M2 from a laptop, rerun M3 470/471, delete prior caches, or access te
 Fidelity-v4 array 536 at commit `8682cb4` proved that the instruction model's generation-token
 count can exceed 8,192 even when the exact grouped output passes the separate frozen 8,192-token
 embedding tokenizer. Shards 536_0/536_1 failed closed on 49/34 `finish_reason=length` responses
-while preserving 400/375 successful new rows. The fidelity-v5 recovery retains both earlier cache
-identities, adds only a distinct 16,384-token generation cap for unresolved rows, and leaves the
-downstream 8,192-token gate unchanged. Preserve 536-538 and do not rerun unchanged fidelity-v4.
+while preserving 400/375 successful new rows. Fidelity-v5 added a 16,384-token generation tier, but
+job 545 then proved exact copying incompatible with bounded summarization: shards 545_0-545_7 all
+failed, six on over-context exact outputs and two on non-exact copies; 545_8/545_9 and downstream
+548/549 were canceled. Preserve 536-538 and 545/548/549; do not rerun those recovery versions.
+
+The active fidelity-v6 recovery uses one new 6,144-token bounded structured-summary identity,
+requires `finish_reason=stop`, rejects unsupported codes/values/units, altered recurrence, invalid
+format, changed time-label sequence, or movement of a fact between time blocks, and reapplies
+row-level retention plus the unchanged 8,192-
+token downstream gate before cache admission. It uses 16 shards per task, four active shards, two
+requests per shard, and three fixed contract attempts. This restores actual compression required by
+Prompt 4 without changing M1 source evidence, M3 470/471, any outcome definition, or the test lock.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those

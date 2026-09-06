@@ -1,6 +1,6 @@
 # Project state
 
-Status date: 2026-09-05
+Status date: 2026-09-06
 
 ## Source state
 
@@ -210,3 +210,16 @@ Status date: 2026-09-05
   rows. Previously accepted 4,096/8,192 rows still require reconstructed exact equality and are
   reused; the frozen downstream embedding limit remains 8,192 tokens. M3 remains unchanged and test
   performance remains locked.
+- Commit `223acb0` submitted fidelity-v5 array 545. Shards 545_0-545_7 all failed before the
+  12-hour limit: six contained grouped exact copies exceeding the frozen 8,192-token downstream
+  embedding context, and two contained assistant text that was not an exact copy. Shards 545_8 and
+  545_9 plus downstream jobs 548/549 were canceled after the graph became unsatisfiable. M3 470/471
+  was reverified COMPLETE and remains canonical. No M2 fit, selection, or held-out evaluation ran.
+- Fidelity-v6 replaces the contradictory exact-copy rule with the bounded structured summary
+  specified by Prompt 4. It uses a new prompt/cache/validation identity, one 6,144-token decoding
+  configuration, strict row-level unsupported-fact and timing guards, the existing fidelity floors,
+  and the unchanged 8,192-token embedding limit. Work is split into 16 shards per task, four active
+  with two requests each; total endpoint concurrency remains eight while each Slurm job becomes
+  smaller. Earlier cache rows and job evidence are preserved but cannot satisfy fidelity-v6 keys.
+  The full 161-test local synthetic suite, tracked-source Ruff checks, changed-shell syntax checks,
+  durable-context check, and pre-push privacy/safety check pass; governed DGX validation is pending.

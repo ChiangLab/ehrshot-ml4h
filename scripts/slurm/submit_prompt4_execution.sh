@@ -10,7 +10,7 @@ STAGE="${1:-reference}"
 CONTAINER_IMAGE="/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh"
 PYTHON="${PROJECT_ROOT}/.venv/bin/python"
 CONFIG="${PROJECT_ROOT}/configs/experiments/final_m2_m3.yaml"
-M2_SUMMARY_PARALLELISM="${PROMPT4_M2_SUMMARY_PARALLELISM:-2}"
+M2_SUMMARY_PARALLELISM="${PROMPT4_M2_SUMMARY_PARALLELISM:-4}"
 M2_EMBED_PARALLELISM="${PROMPT4_M2_EMBED_PARALLELISM:-1}"
 M3_PREPARE_PARALLELISM="${PROMPT4_M3_PREPARE_PARALLELISM:-1}"
 M3_TRAIN_PARALLELISM="${PROMPT4_M3_TRAIN_PARALLELISM:-2}"
@@ -23,7 +23,7 @@ require_parallelism() {
   fi
 }
 
-require_parallelism PROMPT4_M2_SUMMARY_PARALLELISM "${M2_SUMMARY_PARALLELISM}" 2
+require_parallelism PROMPT4_M2_SUMMARY_PARALLELISM "${M2_SUMMARY_PARALLELISM}" 4
 require_parallelism PROMPT4_M2_EMBED_PARALLELISM "${M2_EMBED_PARALLELISM}" 2
 require_parallelism PROMPT4_M3_PREPARE_PARALLELISM "${M3_PREPARE_PARALLELISM}" 2
 require_parallelism PROMPT4_M3_TRAIN_PARALLELISM "${M3_TRAIN_PARALLELISM}" 3
@@ -60,9 +60,12 @@ srun \
 mkdir -p outputs/private/submissions
 
 if [[ "${STAGE}" == "reference" ]]; then
+  M2_SUMMARY_SHARDS_PER_TASK=16
+  M2_REFERENCE_MAX_INDEX=$((4 * M2_SUMMARY_SHARDS_PER_TASK - 1))
   M2_ARRAY_JOB_ID="$(
-    sbatch --parsable --array="0-3%${M2_SUMMARY_PARALLELISM}" \
-      --export=ALL,M23_STAGE=reference scripts/slurm/24_m2_summary_task_array.sbatch
+    sbatch --parsable --array="0-${M2_REFERENCE_MAX_INDEX}%${M2_SUMMARY_PARALLELISM}" \
+      --export=ALL,M23_STAGE=reference,M2_SUMMARY_SHARDS_PER_TASK="${M2_SUMMARY_SHARDS_PER_TASK}" \
+      scripts/slurm/24c_m2_summary_shard_array.sbatch
   )"
   M2_EMBED_ARRAY_JOB_ID="$(
     sbatch --parsable --dependency="afterok:${M2_ARRAY_JOB_ID}" \
@@ -87,6 +90,7 @@ if [[ "${STAGE}" == "reference" ]]; then
     printf 'REFERENCE_SOURCE_GIT_COMMIT=%q\n' "${SOURCE_GIT_COMMIT}"
     printf 'PROMPT4_STAGE=%q\n' "reference"
     printf 'M2_ARRAY_JOB_ID=%q\n' "${M2_ARRAY_JOB_ID}"
+    printf 'M2_SUMMARY_SHARDS_PER_TASK=%q\n' "${M2_SUMMARY_SHARDS_PER_TASK}"
     printf 'M2_EMBED_ARRAY_JOB_ID=%q\n' "${M2_EMBED_ARRAY_JOB_ID}"
     printf 'M2_REVIEW_PREP_JOB_ID=%q\n' "${M2_REVIEW_PREP_JOB_ID}"
     printf 'M3_PREP_ARRAY_JOB_ID=%q\n' "${M3_PREP_ARRAY_JOB_ID}"
@@ -199,7 +203,7 @@ done
 REFERENCE_STATUS_IDS="${REFERENCE_STATUS_IDS},${M3_FIT_JOB_ID}"
 
 if [[ "${SELECTED_APPROACH}" == "M2" ]]; then
-  M2_SUMMARY_SHARDS_PER_TASK="${M2_SUMMARY_SHARDS_PER_TASK:-8}"
+  M2_SUMMARY_SHARDS_PER_TASK="${M2_SUMMARY_SHARDS_PER_TASK:-16}"
   M2_SENSITIVITY_MAX_INDEX=$((4 * M2_SUMMARY_SHARDS_PER_TASK - 1))
   SENSITIVITY_SUMMARY_ARRAY_JOB_ID="$(
     sbatch --parsable --array="0-${M2_SENSITIVITY_MAX_INDEX}%${M2_SUMMARY_PARALLELISM}" \

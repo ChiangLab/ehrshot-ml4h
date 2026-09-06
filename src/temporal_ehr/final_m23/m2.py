@@ -35,12 +35,15 @@ BRACKET_RE = re.compile(r"\[([^\]]+)\]")
 UNIT_RE = re.compile(r"\bunit=([^|\n]+)")
 VALUE_RE = re.compile(r"\bvalue=([-+]?\d+(?:\.\d+)?)")
 VALUES_RE = re.compile(r"\bvalues=([^|\n]+)")
+TEXT_VALUE_RE = re.compile(r"\btext_value=([^|\n]+)")
+TEXT_VALUES_RE = re.compile(r"\btext_values=(\[[^\n]*?\])(?: \| |$)")
 OCCURRENCES_RE = re.compile(r"\boccurrences=(\d+)")
 NUMBER_TOKEN_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
 TREND_WORDS = {"increasing", "decreasing", "stable"}
 NULL_LIKE_SUMMARIES = frozenset({"none", "null"})
 M2_SOURCE_COMPACTION_SCHEMA = "m2_grouped_facts_v2"
-M2_SUMMARY_CACHE_SCHEMA = "m2_summary_cache_v4_grouped_completion_bound"
+M2_SUMMARY_CACHE_SCHEMA = "m2_summary_cache_v5_bounded_structured"
+M2_SUMMARY_VALIDATION_SCHEMA = "m2_bounded_summary_validation_v1"
 M2_EMBEDDING_MAX_TOKENS = 8192
 SOURCE_FIELD_RE = re.compile(r" \| (?=(?:value|text_value|unit|source)=)")
 MANUAL_REVIEW_CRITERIA = (
@@ -70,23 +73,13 @@ class NonRetryableSummaryError(RuntimeError):
 
 
 def m2_decoding_variants(m2: Mapping[str, Any]) -> tuple[tuple[str, dict[str, Any]], ...]:
-    """Return immutable generation identities; downstream context remains 8,192."""
-    primary = dict(m2["decoding"])
-    overflow_control = m2.get("overflow_decoding")
-    if overflow_control != {"max_output_tokens": M2_EMBEDDING_MAX_TOKENS}:
-        raise ContractError("M2 overflow decoding drifted from the 8,192-token recovery control.")
-    overflow = {**primary, **dict(overflow_control)}
-    extended_control = m2.get("extended_decoding")
-    if extended_control != {"max_output_tokens": 16384}:
-        raise ContractError("M2 extended decoding drifted from the 16,384-token recovery control.")
-    extended = {**primary, **dict(extended_control)}
-    if int(primary["max_output_tokens"]) != 4096:
-        raise ContractError("M2 primary decoding must preserve the completed 4,096-token cache identity.")
-    return (
-        ("primary_4096", primary),
-        ("overflow_8192", overflow),
-        ("extended_16384", extended),
-    )
+    """Return the single immutable bounded-summary generation identity."""
+    bounded = dict(m2["decoding"])
+    if int(bounded["max_output_tokens"]) != 6144:
+        raise ContractError("M2 bounded summary generation must remain at 6,144 tokens.")
+    if m2.get("overflow_decoding") is not None or m2.get("extended_decoding") is not None:
+        raise ContractError("M2 bounded summary generation cannot use adaptive token tiers.")
+    return (("bounded_6144", bounded),)
 
 
 def summary_shard_for_key(cache_key: str, shard_count: int) -> int:
@@ -111,6 +104,226 @@ def exact_summary_payload_is_reusable(
     except NonRetryableSummaryError:
         return False
     return True
+
+
+def _retention_rate(source: Counter[str], summary: Counter[str]) -> float:
+    retained, denominator = _counter_retention(source, summary)
+    return retained / denominator if denominator else 1.0
+
+
+def _validate_bounded_summary_grammar(summary: str) -> None:
+    allowed_fields = {"values", "text_values", "unit", "occurrences", "trend"}
+    for raw_line in summary.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line == "[NO_PRE_T_EVENTS]" or TIME_LABEL_RE.fullmatch(line):
+            continue
+        if not line.startswith("- "):
+            raise NonRetryableSummaryError(
+                "M2 bounded summary contains prose or an invalid line prefix."
+            )
+        parts = line[2:].split(" | ")
+        if "/" not in parts[0] or not parts[0].strip():
+            raise NonRetryableSummaryError("M2 bounded summary fact lacks an exact clinical code.")
+        observed_fields: set[str] = set()
+        for field in parts[1:]:
+            if "=" not in field:
+                raise NonRetryableSummaryError(
+                    "M2 bounded summary fact contains an unstructured field."
+                )
+            name, value = field.split("=", maxsplit=1)
+            if name not in allowed_fields or name in observed_fields or not value:
+                raise NonRetryableSummaryError(
+                    "M2 bounded summary fact contains a duplicate or unsupported field."
+                )
+            observed_fields.add(name)
+            if name == "values" and any(
+                NUMBER_TOKEN_RE.fullmatch(item.strip()) is None
+                for item in value.split(",")
+            ):
+                raise NonRetryableSummaryError(
+                    "M2 bounded summary contains an invalid numeric-values field."
+                )
+            if name == "text_values":
+                try:
+                    text_values = json.loads(value)
+                except json.JSONDecodeError as exc:
+                    raise NonRetryableSummaryError(
+                        "M2 bounded summary contains an invalid text-values field."
+                    ) from exc
+                if (
+                    not isinstance(text_values, list)
+                    or not text_values
+                    or any(not isinstance(item, str) or not item for item in text_values)
+                ):
+                    raise NonRetryableSummaryError(
+                        "M2 bounded summary contains an invalid text-values field."
+                    )
+            if name == "occurrences" and (not value.isdigit() or int(value) < 2):
+                raise NonRetryableSummaryError(
+                    "M2 bounded summary contains an invalid recurrence count."
+                )
+            if name == "trend" and value not in TREND_WORDS:
+                raise NonRetryableSummaryError("M2 bounded summary contains an invalid trend.")
+
+
+def validate_bounded_summary(
+    summary: str,
+    *,
+    source_text: str,
+    token_counter: Callable[[str], int],
+    thresholds: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Fail closed on unsupported, mistimed, low-retention, or over-context summaries."""
+    _validate_bounded_summary_grammar(summary)
+    summary_token_count = token_counter(summary)
+    source = _feature_sets(source_text)
+    observed = _feature_sets(summary)
+    source_labels = source["time_label_sequence"]
+    summary_labels = observed["time_label_sequence"]
+    if source_text == "[NO_PRE_T_EVENTS]":
+        if summary.strip() != source_text:
+            raise NonRetryableSummaryError("M2 empty-history summary changed its sentinel.")
+    elif summary_labels != source_labels:
+        raise NonRetryableSummaryError(
+            "M2 bounded summary omitted, added, reordered, or repaired a supplied time label."
+        )
+    if observed["format_violations"]:
+        raise NonRetryableSummaryError("M2 bounded summary contains prose or invalid format lines.")
+
+    unsupported_concepts = observed["concepts"] - source["concepts"]
+    unsupported_numbers = observed["numbers"] - source["numbers"]
+    unsupported_text_values = observed["text_values"] - source["text_values"]
+    unsupported_units = observed["units"] - source["units"]
+    if (
+        unsupported_concepts
+        or unsupported_numbers
+        or unsupported_text_values
+        or unsupported_units
+    ):
+        raise NonRetryableSummaryError(
+            "M2 bounded summary introduced an unsupported code, value, or unit."
+        )
+    if not observed["trends"].issubset(source["trends"]):
+        raise NonRetryableSummaryError("M2 bounded summary introduced an unsupported trend.")
+    for concept, facts in observed["facts_by_concept"].items():
+        if not facts.issubset(source["facts_by_concept"].get(concept, set())):
+            raise NonRetryableSummaryError(
+                "M2 bounded summary changed a code/value/unit association."
+            )
+    for concept, facts in observed["text_facts_by_concept"].items():
+        if not facts.issubset(source["text_facts_by_concept"].get(concept, set())):
+            raise NonRetryableSummaryError(
+                "M2 bounded summary changed a code/text-value/unit association."
+            )
+    for concept, count in observed["recurrence"].items():
+        if source["recurrence"].get(concept) != count:
+            raise NonRetryableSummaryError("M2 bounded summary changed a recurrence count.")
+
+    source_windows = _window_feature_sets(source_text)
+    summary_windows = _window_feature_sets(summary)
+    if len(source_windows) != len(summary_windows):
+        raise NonRetryableSummaryError("M2 bounded summary changed the supplied time blocks.")
+    for (source_label, source_window), (summary_label, summary_window) in zip(
+        source_windows,
+        summary_windows,
+        strict=True,
+    ):
+        if source_label != summary_label:
+            raise NonRetryableSummaryError("M2 bounded summary repaired a supplied time label.")
+        for feature in ("concepts", "numbers", "text_values", "units"):
+            if summary_window[feature] - source_window[feature]:
+                raise NonRetryableSummaryError(
+                    "M2 bounded summary moved or invented a fact within a time block."
+                )
+        if not summary_window["trends"].issubset(source_window["trends"]):
+            raise NonRetryableSummaryError(
+                "M2 bounded summary moved or invented a trend within a time block."
+            )
+        for feature in ("facts_by_concept", "text_facts_by_concept"):
+            for concept, facts in summary_window[feature].items():
+                if not facts.issubset(source_window[feature].get(concept, set())):
+                    raise NonRetryableSummaryError(
+                        "M2 bounded summary changed a time-specific fact association."
+                    )
+        for concept, count in summary_window["recurrence"].items():
+            if source_window["recurrence"].get(concept) != count:
+                raise NonRetryableSummaryError(
+                    "M2 bounded summary changed time-specific recurrence."
+                )
+
+    rates = {
+        name: _retention_rate(source[name], observed[name])
+        for name in (
+            "concepts",
+            "numbers",
+            "text_values",
+            "units",
+            "recurrence",
+            "time_labels",
+        )
+    }
+    expected_trends = source["trends"]
+    observed_trends = observed["trends"]
+    rates["trends"] = (
+        len(expected_trends & observed_trends) / len(expected_trends)
+        if expected_trends
+        else 1.0
+    )
+    minimums = {
+        "concepts": float(thresholds["minimum_concept_retention"]),
+        "numbers": float(thresholds["minimum_numeric_retention"]),
+        "text_values": float(thresholds["minimum_numeric_retention"]),
+        "units": float(thresholds["minimum_unit_retention"]),
+        "recurrence": float(thresholds["minimum_recurrence_retention"]),
+        "trends": float(thresholds["minimum_trend_retention"]),
+        "time_labels": float(thresholds["minimum_time_label_retention"]),
+    }
+    failed = sorted(name for name, value in rates.items() if value < minimums[name])
+    if failed:
+        raise NonRetryableSummaryError(
+            "M2 bounded summary fell below row-level retention gates: " + ", ".join(failed)
+        )
+    return {
+        "schema": M2_SUMMARY_VALIDATION_SCHEMA,
+        "status": "PASS",
+        "embedding_token_count": summary_token_count,
+        "embedding_max_tokens": M2_EMBEDDING_MAX_TOKENS,
+        "character_compression_ratio": len(summary) / max(1, len(source_text)),
+        "retention": rates,
+        "unsupported_concepts": 0,
+        "unsupported_numbers": 0,
+        "unsupported_text_values": 0,
+        "unsupported_units": 0,
+        "time_label_sequence_exact": True,
+    }
+
+
+def bounded_summary_payload_is_reusable(
+    payload: Mapping[str, Any],
+    *,
+    source_text: str,
+    token_counter: Callable[[str], int],
+    thresholds: Mapping[str, Any],
+) -> bool:
+    """Revalidate an immutable bounded summary before allowing cache reuse."""
+    summary = payload.get("summary")
+    if not isinstance(summary, str):
+        return False
+    try:
+        observed = validate_bounded_summary(
+            summary,
+            source_text=source_text,
+            token_counter=token_counter,
+            thresholds=thresholds,
+        )
+    except NonRetryableSummaryError:
+        return False
+    return (
+        payload.get("bounded_validation") == observed
+        and payload.get("bounded_validation_passed") is True
+    )
 
 
 def validate_on_premise_api_base(api_base: str) -> str:
@@ -281,6 +494,46 @@ def _summarize_with_retries(
     raise AssertionError("unreachable")
 
 
+def _generate_bounded_summary_with_attempts(
+    client: OnPremiseSummaryClient,
+    *,
+    system_prompt: str,
+    source_text: str,
+    decoding: Mapping[str, Any],
+    request_retries: int,
+    contract_attempts: int,
+    token_counter: Callable[[str], int],
+    thresholds: Mapping[str, Any],
+) -> tuple[SummaryGeneration, dict[str, Any], int]:
+    """Repeat one frozen generation contract without adapting prompts or decoding."""
+    if contract_attempts < 1:
+        raise ContractError("M2 generation-contract attempts must be positive.")
+    contract_errors: list[str] = []
+    for contract_attempt in range(1, contract_attempts + 1):
+        try:
+            generation = _summarize_with_retries(
+                client,
+                system_prompt=system_prompt,
+                source_text=source_text,
+                decoding=decoding,
+                retries=request_retries,
+            )
+            validation = validate_bounded_summary(
+                generation.summary,
+                source_text=source_text,
+                token_counter=token_counter,
+                thresholds=thresholds,
+            )
+        except NonRetryableSummaryError as exc:
+            contract_errors.append(str(exc))
+            continue
+        return generation, validation, contract_attempt
+    raise NonRetryableSummaryError(
+        "M2 bounded summary failed all fixed contract attempts: "
+        + " | ".join(contract_errors)
+    )
+
+
 def compact_exact_duplicate_facts(source_text: str) -> str:
     """Collapse exact repeated fact lines within each window using deterministic counts.
 
@@ -417,8 +670,12 @@ class LocalSummaryTokenValidator:
         )
         self.maximum_tokens = int(maximum_tokens)
 
+    def count(self, summary: str) -> int:
+        """Count downstream tokens without changing the frozen embedding limit."""
+        return len(self.tokenizer.encode(summary, add_special_tokens=False))
+
     def __call__(self, summary: str) -> int:
-        token_count = len(self.tokenizer.encode(summary, add_special_tokens=False))
+        token_count = self.count(summary)
         if token_count > self.maximum_tokens:
             raise NonRetryableSummaryError(
                 "M2 summary exceeds the frozen downstream 8,192-token embedding context."
@@ -692,6 +949,9 @@ def run_m2_task(
     decoding_hashes = {name: stable_hash(decoding) for name, decoding in decoding_variants}
     concurrent_requests = int(spec.m2["execution"]["concurrent_requests"])
     request_retries = int(spec.m2["execution"]["request_retries"])
+    generation_contract_attempts = int(
+        spec.m2["execution"]["generation_contract_attempts"]
+    )
     progress_interval = int(spec.m2["execution"]["progress_interval_rows"])
     token_counter = summary_token_counter or LocalSummaryTokenValidator(
         model_root / spec.model_directory_name,
@@ -737,8 +997,8 @@ def run_m2_task(
                     variant_decoding,
                 )
             )
-        overflow_key = identities[-1][1]
-        if sharded and summary_shard_for_key(overflow_key, configured_shards) != summary_shard_index:
+        bounded_key = identities[-1][1]
+        if sharded and summary_shard_for_key(bounded_key, configured_shards) != summary_shard_index:
             continue
         selected_source_rows += 1
         representation_key = str(row["representation_key"])
@@ -758,10 +1018,11 @@ def run_m2_task(
                 continue
             if payload is None:
                 continue
-            if not exact_summary_payload_is_reusable(
+            if not bounded_summary_payload_is_reusable(
                 payload,
                 source_text=source_text,
                 token_counter=token_counter,
+                thresholds=spec.m2["fidelity"],
             ):
                 rejected_existing += 1
                 continue
@@ -770,10 +1031,10 @@ def run_m2_task(
             selected_key = key
             break
         if selected_key is None:
-            _, selected_key, expected, extended_decoding = identities[-1]
+            _, selected_key, expected, bounded_decoding = identities[-1]
             pending_by_key.setdefault(
                 selected_key,
-                (source_text, expected, extended_decoding),
+                (source_text, expected, bounded_decoding),
             )
         representation_keys[representation_key] = selected_key
     if embed_summaries and pending_by_key:
@@ -786,18 +1047,18 @@ def run_m2_task(
 
         def generate(cache_key: str) -> tuple[str, dict[str, Any]]:
             source_text, expected, generation_decoding = pending_by_key[cache_key]
-            generation = _summarize_with_retries(
-                summary_client,
-                system_prompt=prompt,
-                source_text=source_text,
-                decoding=generation_decoding,
-                retries=request_retries,
-            )
-            if generation.summary.strip() != source_text.strip():
-                raise NonRetryableSummaryError(
-                    "M2 assistant output did not exactly copy the deterministic grouped source."
+            generation, bounded_validation, contract_attempt = (
+                _generate_bounded_summary_with_attempts(
+                    summary_client,
+                    system_prompt=prompt,
+                    source_text=source_text,
+                    decoding=generation_decoding,
+                    request_retries=request_retries,
+                    contract_attempts=generation_contract_attempts,
+                    token_counter=token_counter,
+                    thresholds=spec.m2["fidelity"],
                 )
-            summary_token_count = token_counter(generation.summary)
+            )
             return cache_key, {
                 **expected,
                 "summary": generation.summary,
@@ -805,9 +1066,12 @@ def run_m2_task(
                 "finish_reason": generation.finish_reason,
                 "prompt_tokens": generation.prompt_tokens,
                 "completion_tokens": generation.completion_tokens,
-                "embedding_token_count": summary_token_count,
+                "embedding_token_count": bounded_validation["embedding_token_count"],
                 "embedding_max_tokens": M2_EMBEDDING_MAX_TOKENS,
                 "completion_budget_tokens": int(generation_decoding["max_output_tokens"]),
+                "bounded_validation_passed": True,
+                "bounded_validation": bounded_validation,
+                "generation_contract_attempt": contract_attempt,
             }
 
         with ThreadPoolExecutor(max_workers=min(concurrent_requests, len(pending_by_key))) as executor:
@@ -896,7 +1160,7 @@ def run_m2_task(
         "summaries": selected_source_rows,
         "summary_cache_rows_reused": reused,
         "summary_rows_generated_this_attempt": completed_new,
-        "summary_cache_rows_rejected_for_exact_fidelity": rejected_existing,
+        "summary_cache_rows_rejected_by_bounded_validation": rejected_existing,
         "summary_shard_index": summary_shard_index,
         "summary_shard_count": summary_shard_count,
         "summary_shard_complete": sharded,
@@ -911,13 +1175,14 @@ def run_m2_task(
         "completion_budget_cache_rows": {
             str(budget): count for budget, count in sorted(completion_budget_counts.items())
         },
-        "primary_completion_budget_tokens": 4096,
-        "overflow_completion_budget_tokens": M2_EMBEDDING_MAX_TOKENS,
-        "extended_completion_budget_tokens": 16384,
-        "adaptive_completion_policy": "reuse_exact_4096_or_8192_else_generate_exact_16384",
-        "exact_grouped_source_copy_required": True,
+        "bounded_completion_budget_tokens": 6144,
+        "completion_policy": "single_fixed_bounded_structured_summary",
+        "exact_grouped_source_copy_required": False,
+        "row_level_bounded_validation_required": True,
+        "bounded_validation_schema": M2_SUMMARY_VALIDATION_SCHEMA,
         "concurrent_summary_requests": concurrent_requests,
         "request_retries": request_retries,
+        "generation_contract_attempts": generation_contract_attempts,
         "summary_cache_key_fields": [
             "source_hash",
             "condition",
@@ -978,26 +1243,44 @@ def _values_in_line(line: str) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _text_values_in_line(line: str) -> list[str]:
+    values = [value.strip() for value in TEXT_VALUE_RE.findall(line)]
+    for encoded in TEXT_VALUES_RE.findall(line):
+        try:
+            decoded = json.loads(encoded)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(decoded, list):
+            values.extend(value for value in decoded if isinstance(value, str))
+    return list(dict.fromkeys(values))
+
+
 def _feature_sets(text: str) -> dict[str, Any]:
     """Extract structured facts without treating code/time digits as clinical values."""
     lines = [line.strip() for line in text.splitlines() if line.strip().startswith("-")]
     concept_occurrences: Counter[str] = Counter()
     concepts: set[str] = set()
     numbers: set[str] = set()
+    text_values: set[str] = set()
     units: set[str] = set()
     trends: set[str] = set()
     values_by_concept: defaultdict[str, list[float]] = defaultdict(list)
     units_by_concept: defaultdict[str, set[str]] = defaultdict(set)
     facts_by_concept: defaultdict[str, set[tuple[str | None, str | None]]] = defaultdict(set)
+    text_facts_by_concept: defaultdict[
+        str, set[tuple[str, str | None]]
+    ] = defaultdict(set)
     for line in lines:
         codes = _concepts_in_line(line)
         values = _values_in_line(line)
+        line_text_values = _text_values_in_line(line)
         unit_match = UNIT_RE.search(line)
         unit = unit_match.group(1).strip() if unit_match else None
         occurrence_match = OCCURRENCES_RE.search(line)
         occurrences = int(occurrence_match.group(1)) if occurrence_match else 1
         concepts.update(codes)
         numbers.update(values)
+        text_values.update(line_text_values)
         if unit:
             units.add(unit)
         for code in codes:
@@ -1010,6 +1293,8 @@ def _feature_sets(text: str) -> dict[str, Any]:
                     values_by_concept[code].append(float(value))
             else:
                 facts_by_concept[code].add((None, unit))
+            for text_value in line_text_values:
+                text_facts_by_concept[code].add((text_value, unit))
         lowered = line.casefold()
         trends.update(word for word in TREND_WORDS if word in lowered)
     inferred_trends: set[str] = set()
@@ -1031,6 +1316,7 @@ def _feature_sets(text: str) -> dict[str, Any]:
     return {
         "concepts": Counter({concept: 1 for concept in concepts}),
         "numbers": Counter({number: 1 for number in numbers}),
+        "text_values": Counter({value: 1 for value in text_values}),
         "units": Counter({unit: 1 for unit in units}),
         "time_labels": Counter(TIME_LABEL_RE.findall(text)),
         "time_label_sequence": TIME_LABEL_RE.findall(text),
@@ -1039,9 +1325,35 @@ def _feature_sets(text: str) -> dict[str, Any]:
         ),
         "trends": trends or inferred_trends,
         "facts_by_concept": facts_by_concept,
+        "text_facts_by_concept": text_facts_by_concept,
         "units_by_concept": units_by_concept,
         "format_violations": format_violations,
     }
+
+
+def _window_feature_sets(text: str) -> list[tuple[str, dict[str, Any]]]:
+    """Associate every structured fact with its supplied time-label block."""
+    windows: list[tuple[str, dict[str, Any]]] = []
+    label: str | None = None
+    facts: list[str] = []
+
+    def flush() -> None:
+        nonlocal label, facts
+        if label is not None:
+            windows.append((label, _feature_sets("\n".join(facts))))
+        facts = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if TIME_LABEL_RE.fullmatch(line):
+            flush()
+            label = line
+        elif line != "[NO_PRE_T_EVENTS]":
+            facts.append(line)
+    flush()
+    return windows
 
 
 def _counter_retention(source: Counter[str], summary: Counter[str]) -> tuple[int, int]:

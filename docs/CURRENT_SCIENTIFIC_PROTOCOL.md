@@ -1,6 +1,6 @@
 # Current scientific protocol
 
-Status date: 2026-09-05. This is a concise operational index; the final August 14 protocol and
+Status date: 2026-09-06. This is a concise operational index; the final August 14 protocol and
 `PROTOCOL_DEVIATIONS.md` remain authoritative for detail and unresolved differences.
 
 ## Cohort and panel
@@ -84,11 +84,15 @@ Status date: 2026-09-05. This is a concise operational index; the final August 1
   identity. Eight deterministic shards per task and a two-shard cap change scheduling only; they do
   not change source evidence, prompt, model, condition, split, or evaluation. If validation selects
   M2, the already-authorized M2 sensitivity conditions use the same bounded shard policy.
-- The post-536 recovery adds a third, separately hashed 16,384-token instruction-generation cap
-  because the instruction and embedding tokenizers have different lengths. It does not expand the
-  8,192-token downstream embedding context: exact-copy, `finish_reason=stop`, and downstream-fit
-  gates remain mandatory, and accepted 4,096/8,192 cache rows remain reusable. The request timeout
-  is 1,200 seconds so a valid long generation is not mistaken for a transport failure.
+- Fidelity-v5 job 545 demonstrated that exact-copy output can exceed the frozen downstream context
+  and therefore cannot implement bounded summarization. Fidelity-v6 restores a genuine structured
+  compression step under one new 6,144-token generation/cache identity. It requires exact supplied
+  codes, values, units, recurrence, and time-label order; rejects unsupported or contradictory
+  facts or movement of facts between time blocks; applies the prespecified retention floors per row;
+  and retains the unchanged 8,192-token
+  embedding gate. Sixteen shards per task with four active and two requests each keep the same
+  maximum eight endpoint requests while reducing timeout exposure. Legacy caches remain preserved
+  but cannot satisfy the new prompt/cache identity.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus
   logistic regression is the required capacity comparator. The locked architecture uses at most 64
   recent nonempty windows, 512 tokens per window, hidden size 128, dropout 0.1, AdamW, and three

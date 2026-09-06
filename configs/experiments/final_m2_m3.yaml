@@ -42,32 +42,33 @@ m2:
   api_base: http://10.45.177.17:8000/v1
   endpoint: /chat/completions
   on_premise_only: true
-  prompt_version: m2_fidelity_v3_grouped_structured
+  prompt_version: m2_fidelity_v6_bounded_structured_summary
   prompt: >-
-    Convert this ordered strictly pre-prediction record once into a compact structured summary.
-    The input has already been deterministically grouped within each time block by clinical code,
-    source, and unit. Copy each supplied bracketed time-label line and each grouped dash-prefixed
-    fact exactly once, preserving their order and every supplied values=, text_values=, unit=,
-    source=, and occurrences= field exactly. Do not regroup, recount, expand, rename, translate,
-    interpret, omit, or add a clinical code or field. Output only the supplied time-label and fact
-    lines; do not output headings, prose, explanations, code definitions, diagnoses, causal
-    relationships, future events, outcomes, or missing facts. Keep every supplied time label in
-    exactly the supplied order, including falsified labels; never correct or reinterpret one.
+    Summarize this ordered strictly pre-prediction record once as compact structured evidence. The
+    input has already been deterministically grouped within each time block. Output only supplied
+    bracketed time-label lines followed by dash-prefixed clinical fact lines. Copy every retained
+    clinical code, numeric value, text value, and unit exactly; never expand or rename a code and
+    never invent a value, unit, diagnosis, interpretation, causal relationship, outcome, or future
+    event. Preserve every supplied time label exactly once and in exactly the supplied order,
+    including falsified labels; never correct or reinterpret time. Preserve all distinct clinical
+    concepts and values while compressing formatting: omit all source= fields and occurrences=1,
+    consolidate recurrence with the exact supplied occurrences=N when N is
+    greater than one, and use trend=increasing, trend=decreasing, or trend=stable only when directly
+    supported by the supplied ordered numeric values. Do not output headings, prose, explanations,
+    blank commentary, or code definitions. Keep the complete response concise and safely below the
+    downstream 8,192-token embedding context.
   decoding:
     temperature: 0.0
     top_p: 1.0
     seed: 20260815
-    max_output_tokens: 4096
+    max_output_tokens: 6144
     chat_template_kwargs:
       enable_thinking: false
-  overflow_decoding:
-    max_output_tokens: 8192
-  extended_decoding:
-    max_output_tokens: 16384
   execution:
-    concurrent_requests: 4
+    concurrent_requests: 2
     request_retries: 3
-    summary_shards_per_task: 8
+    generation_contract_attempts: 3
+    summary_shards_per_task: 16
     progress_interval_rows: 25
   reference_condition: C1_correct_compact_time
   fidelity_condition: C3_shuffled_earlier_time_labels
