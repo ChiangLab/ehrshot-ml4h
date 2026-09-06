@@ -1117,3 +1117,51 @@ data before the manual and automated reference gates pass.
 If reference selection later chooses M2, `submit_prompt4_execution.sh sensitivity` automatically
 uses the same 32-index bounded summary array before embedding and fitting the prespecified M2
 sensitivity conditions. Do not substitute the historical whole-task M2 script.
+
+## Post-536 extended-generation M2 recovery
+
+Fidelity-v4 array 536 is superseded after its first two anemia shards failed closed on 49 and 34
+`finish_reason=length` responses at the 8,192-token generation cap. Those shards still atomically
+saved 400 and 375 valid new rows. Preserve jobs 536-538, their logs/sentinels, and every cache row.
+Because the instruction-model and downstream-embedding tokenizers differ, fidelity-v5 adds a
+separately hashed 16,384-token generation cap without changing the frozen 8,192-token embedding
+context. Exact-copy, `finish_reason=stop`, and downstream-fit gates remain mandatory.
+
+Stop the superseded graph and wait until it has fully left the queue before changing the checkout:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+scancel 536 537 538 2>/dev/null || true
+while squeue -h -j 536,537,538 | grep -q .; do
+  date -u
+  squeue -j 536,537,538 -o "%.18i %.12P %.30j %.2t %.10M %.10l %R"
+  sleep 15
+done
+```
+
+After the fidelity-v5 source is committed/pushed, pull it into the clean DGX checkout, restore the
+four governed environment variables, and submit only through the versioned helper:
+
+```bash
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519_github_dgx
+git pull --ff-only origin main
+test -z "$(git status --porcelain)"
+
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
+export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
+export PROMPT4_M2_SUMMARY_PARALLELISM=2
+export PROMPT4_M2_EMBED_PARALLELISM=1
+export PROMPT4_SLURM_MAIL_USER=wdelery@mednet.ucla.edu
+
+bash scripts/slurm/submit_prompt4_m2_fidelity_v5.sh
+source outputs/private/prompt4_reference_job_ids.env
+bash scripts/slurm/prompt4_status.sh
+```
+
+The preflight verifies job-536 length failures, every observed final job-536 sentinel, canceled
+downstream jobs, preserved 4,096/8,192 candidates, an unused 16,384 identity, three exact synthetic
+live calls, the unchanged downstream tokenizer gate, and canonical M3 jobs 470/471. The replacement
+32-index array rechecks all old rows and makes new calls only for unresolved cache identities.

@@ -135,6 +135,11 @@ def load_final_m23_authorization(
     overflow_decoding = m2.get("overflow_decoding")
     if overflow_decoding != {"max_output_tokens": 8192}:
         raise ContractError("M2 overflow decoding must change only the 8,192-token completion cap.")
+    extended_decoding = m2.get("extended_decoding")
+    if extended_decoding != {"max_output_tokens": 16384}:
+        raise ContractError(
+            "M2 extended decoding must change only the 16,384-token generation cap."
+        )
     execution = m2.get("execution")
     if not isinstance(execution, dict) or (
         int(execution.get("concurrent_requests", 0)) not in range(1, 17)

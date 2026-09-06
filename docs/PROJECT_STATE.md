@@ -186,7 +186,7 @@ Status date: 2026-09-05
   embedding 520 and review 521 were canceled. The preserved current-version successful-row counts
   are 396 anemia, 50 readmission, 67 hypertension, and 101 CheXpert; they are superseded engineering
   evidence and cannot satisfy the next prompt/cache identity.
-- The pending fidelity-v3 recovery groups every window by exact code/source/unit before Qwen,
+- The fidelity-v3 recovery design grouped every window by exact code/source/unit before Qwen,
   preserves distinct numeric/text values in first-occurrence order and exact occurrence totals,
   raises the completion ceiling from 2,048 to 4,096, requires `finish_reason=stop`, and validates
   every accepted summary against the frozen 8,192-token embedding tokenizer. It records progress
@@ -197,8 +197,16 @@ Status date: 2026-09-05
   four have preserved FAILED sentinels; downstream 530/531 were canceled. The last aggregate-only
   cache inventory showed 677 anemia, 881 readmission, 640-plus hypertension, and 317 CheXpert
   fidelity-v3 candidate rows. These are candidates, not completion evidence.
-- The pending fidelity-v4 recovery retains the exact primary decoding hash, reuses only candidate
+- The fidelity-v4 recovery design retained the exact primary decoding hash, reused only candidate
   rows whose content is an exact reconstructed grouped-source copy and passes the frozen 8,192-token
   tokenizer, and generates only missing/rejected rows under a separate 8,192-token overflow hash.
   Work is partitioned into eight deterministic shards per task with at most two active and four
   requests per shard. M3 470/471 remains canonical; test performance remains locked.
+- Commit `8682cb4` submitted fidelity-v4 array 536. Shards 536_0/536_1 saved 400/375 new exact rows
+  but failed closed after 49/34 other responses ended with `finish_reason=length` at the 8,192-token
+  generation ceiling. This demonstrates a tokenizer-length mismatch rather than endpoint or Slurm
+  failure. Downstream 537/538 were canceled and all cache/status evidence is preserved.
+- Fidelity-v5 adds only a separately hashed 16,384-token instruction-generation tier for unresolved
+  rows. Previously accepted 4,096/8,192 rows still require reconstructed exact equality and are
+  reused; the frozen downstream embedding limit remains 8,192 tokens. M3 remains unchanged and test
+  performance remains locked.

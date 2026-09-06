@@ -70,15 +70,23 @@ class NonRetryableSummaryError(RuntimeError):
 
 
 def m2_decoding_variants(m2: Mapping[str, Any]) -> tuple[tuple[str, dict[str, Any]], ...]:
-    """Return the immutable primary and completion-overflow decoding identities."""
+    """Return immutable generation identities; downstream context remains 8,192."""
     primary = dict(m2["decoding"])
     overflow_control = m2.get("overflow_decoding")
     if overflow_control != {"max_output_tokens": M2_EMBEDDING_MAX_TOKENS}:
         raise ContractError("M2 overflow decoding drifted from the 8,192-token recovery control.")
     overflow = {**primary, **dict(overflow_control)}
+    extended_control = m2.get("extended_decoding")
+    if extended_control != {"max_output_tokens": 16384}:
+        raise ContractError("M2 extended decoding drifted from the 16,384-token recovery control.")
+    extended = {**primary, **dict(extended_control)}
     if int(primary["max_output_tokens"]) != 4096:
         raise ContractError("M2 primary decoding must preserve the completed 4,096-token cache identity.")
-    return (("primary_4096", primary), ("overflow_8192", overflow))
+    return (
+        ("primary_4096", primary),
+        ("overflow_8192", overflow),
+        ("extended_16384", extended),
+    )
 
 
 def summary_shard_for_key(cache_key: str, shard_count: int) -> int:
@@ -122,7 +130,7 @@ def validate_on_premise_api_base(api_base: str) -> str:
 class OnPremiseSummaryClient:
     """Minimal OpenAI-compatible client that cannot route governed text externally."""
 
-    def __init__(self, *, api_base: str, model: str, timeout_seconds: int = 600) -> None:
+    def __init__(self, *, api_base: str, model: str, timeout_seconds: int = 1200) -> None:
         self.api_base = validate_on_premise_api_base(api_base)
         self.model = model
         self.timeout_seconds = int(timeout_seconds)
@@ -762,10 +770,10 @@ def run_m2_task(
             selected_key = key
             break
         if selected_key is None:
-            _, selected_key, expected, overflow_decoding = identities[-1]
+            _, selected_key, expected, extended_decoding = identities[-1]
             pending_by_key.setdefault(
                 selected_key,
-                (source_text, expected, overflow_decoding),
+                (source_text, expected, extended_decoding),
             )
         representation_keys[representation_key] = selected_key
     if embed_summaries and pending_by_key:
@@ -905,7 +913,8 @@ def run_m2_task(
         },
         "primary_completion_budget_tokens": 4096,
         "overflow_completion_budget_tokens": M2_EMBEDDING_MAX_TOKENS,
-        "adaptive_completion_policy": "reuse_exact_4096_else_generate_exact_8192",
+        "extended_completion_budget_tokens": 16384,
+        "adaptive_completion_policy": "reuse_exact_4096_or_8192_else_generate_exact_16384",
         "exact_grouped_source_copy_required": True,
         "concurrent_summary_requests": concurrent_requests,
         "request_retries": request_retries,

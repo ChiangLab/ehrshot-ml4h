@@ -190,6 +190,30 @@ def _validate_fidelity_v4_config_change(
         raise ContractError("Fidelity-v4 recovery changed more than overflow and shard controls.")
 
 
+def _validate_fidelity_v5_config_change(
+    root: Path,
+    old_commit: str,
+    config_path: Path,
+    expected_upstream_sha256: str,
+) -> None:
+    """Allow only the third generation ceiling after 8,192-token length failures."""
+    relative = config_path.resolve().relative_to(root.resolve()).as_posix()
+    previous_text = subprocess.run(
+        ["git", "show", f"{old_commit}:{relative}"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if hashlib.sha256(previous_text.encode("utf-8")).hexdigest() != expected_upstream_sha256:
+        raise ContractError("Upstream Prompt 4 fidelity-v5 configuration hash drifted.")
+    previous = yaml.safe_load(previous_text)
+    current = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    extended = current["m2"].pop("extended_decoding", None)
+    if extended != {"max_output_tokens": 16384} or current != previous:
+        raise ContractError("Fidelity-v5 recovery changed more than the extended generation cap.")
+
+
 def _validate_complete_status(root: Path, status_id: str, commit: str, run_kind: str) -> str:
     directory = root / "outputs/private/run_status" / status_id
     payload = _json_object(directory / "COMPLETE.json", f"job-{status_id} COMPLETE sentinel")
@@ -952,6 +976,244 @@ def validate_prompt4_m2_fidelity_v4_recovery(
         "primary_cache_identity_unchanged": True,
         "reuse_requires_exact_grouped_source_copy": True,
         "overflow_completion_tokens": 8192,
+        "summary_shards_per_task": 8,
+        "maximum_active_summary_shards": 2,
+        "concurrent_requests_per_shard": 4,
+        "live_endpoint_check_passed": live_endpoint_check,
+        "live_synthetic_repetitions": 3 if live_endpoint_check else 0,
+        "live_synthetic_summary_sha256": live_hashes,
+        "live_synthetic_completion_tokens": live_completion_tokens,
+        "live_synthetic_embedding_tokens": live_embedding_tokens,
+        "stable_served_model_identity_hash": model_identity_hash,
+        "m3_rerun_required": False,
+        "test_predictions_or_performance_used": False,
+        "patient_content_included": False,
+    }
+    assert_privacy_safe_report(json.dumps(report, sort_keys=True))
+    return report
+
+
+def validate_prompt4_m2_fidelity_v5_recovery(
+    *,
+    repository_root: Path,
+    config_path: Path,
+    authorization_path: Path,
+    model_root: Path,
+    current_source_git_commit: str,
+    live_endpoint_check: bool,
+) -> dict[str, Any]:
+    """Gate the third decoding identity after systematic job-536 length failures."""
+    root = repository_root.resolve()
+    if FULL_COMMIT.fullmatch(current_source_git_commit) is None:
+        raise ContractError("M2 fidelity-v5 recovery requires a full current Git commit.")
+    auth = _load_authorization(root, authorization_path)
+    old_commit = str(auth.get("upstream_source_git_commit", ""))
+    expected_controls = {
+        "preserve_job_536_status_logs_and_caches": True,
+        "preserve_canceled_downstream_jobs": True,
+        "reuse_only_exact_4096_or_8192_completions": True,
+        "primary_and_overflow_cache_identities_unchanged": True,
+        "extended_generation_tokens": 16384,
+        "extended_cache_identity_separate": True,
+        "request_timeout_seconds": 1200,
+        "downstream_embedding_tokens_unchanged": 8192,
+        "deterministic_shards_per_task": 8,
+        "maximum_active_summary_shards": 2,
+        "concurrent_requests_per_shard": 4,
+        "require_finish_reason_stop": True,
+        "require_exact_grouped_source_copy": True,
+        "require_downstream_8192_token_fit": True,
+        "progress_interval_rows": 25,
+        "rerun_m2": True,
+        "rerun_m3": False,
+        "test_predictions_or_performance_used": False,
+    }
+    expected_jobs = {
+        "failed_m2_summary_shards": {
+            "job_id": 536,
+            "required_indices": [0, 1],
+            "exit_status_by_index": {0: 1, 1: 1},
+            "failure_reason": "finish_reason_length_at_8192_generation_tokens",
+        },
+        "canceled_m2_embedding": {"job_id": 537},
+        "canceled_m2_review": {"job_id": 538},
+        "m3_preparation": {"job_id": 470, "indices": [0, 1, 2, 3]},
+        "m3_seed_array": {"job_id": 471, "indices": list(range(12))},
+    }
+    if (
+        auth.get("version") != 5
+        or auth.get("mode") != "M2_FIDELITY_V5_EXTENDED_GENERATION_RECOVERY"
+        or auth.get("experiment_id") != "locked_four_task_m2_m3_v1"
+        or old_commit != "8682cb494b779efd0d6ea16785c08f61702bb4a0"
+        or current_source_git_commit == old_commit
+        or auth.get("controls") != expected_controls
+        or auth.get("source_jobs") != expected_jobs
+    ):
+        raise ContractError("Prompt 4 M2 fidelity-v5 recovery authorization drifted.")
+
+    spec = load_final_m23_authorization(config_path, repository_root=root)
+    _validate_fidelity_v5_config_change(
+        root,
+        old_commit,
+        config_path,
+        str(auth.get("upstream_experiment_config_sha256", "")),
+    )
+
+    required_failed_status_hashes = {
+        f"536_{index}": _validate_failed_status(
+            root,
+            f"536_{index}",
+            old_commit,
+            "final_m2_summary_shard_reference",
+            int(expected_jobs["failed_m2_summary_shards"]["exit_status_by_index"][index]),
+        )
+        for index in (0, 1)
+    }
+    failure_log_hashes: dict[str, str] = {}
+    for index, minimum_failures in ((0, 49), (1, 34)):
+        log_path = root / f"slurm-tehr-final-m2-shard-536_{index}.out"
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+        if (
+            "finish_reason='length'" not in text
+            or f"RuntimeError: {minimum_failures} on-premise summary request(s) failed" not in text
+        ):
+            raise ContractError(f"Job 536_{index} does not contain the authorized length failure.")
+        failure_log_hashes[f"536_{index}"] = file_sha256(log_path)
+
+    observed_job_536_status_hashes: dict[str, str] = {}
+    for index in range(32):
+        status_id = f"536_{index}"
+        directory = root / "outputs/private/run_status" / status_id
+        if (directory / "COMPLETE.json").is_file():
+            observed_job_536_status_hashes[status_id] = _validate_complete_status(
+                root,
+                status_id,
+                old_commit,
+                "final_m2_summary_shard_reference",
+            )
+        elif (directory / "FAILED.json").is_file():
+            failed = _json_object(directory / "FAILED.json", f"job-{status_id} FAILED sentinel")
+            hashes = _validate_failed_status(
+                root,
+                status_id,
+                old_commit,
+                "final_m2_summary_shard_reference",
+                int(failed.get("exit_status", -1)),
+            )
+            observed_job_536_status_hashes[status_id] = hashes["FAILED.json"]
+        elif (directory / "RUNNING.json").exists():
+            raise ContractError(f"Job {status_id} has RUNNING evidence without a final sentinel.")
+
+    for downstream_id in ("537", "538"):
+        status_root = root / "outputs/private/run_status"
+        names = [downstream_id, *(f"{downstream_id}_{index}" for index in range(4))]
+        if any((status_root / name / "COMPLETE.json").exists() for name in names):
+            raise ContractError(
+                f"Canceled downstream job {downstream_id} unexpectedly has COMPLETE evidence."
+            )
+
+    m3_status_hashes = {
+        f"470_{index}": _validate_complete_status(
+            root,
+            f"470_{index}",
+            "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+            "final_m3_prepare_reference",
+        )
+        for index in range(4)
+    }
+    m3_status_hashes.update(
+        {
+            f"471_{index}": _validate_complete_status(
+                root,
+                f"471_{index}",
+                "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+                "final_m3_task_seed_reference",
+            )
+            for index in range(12)
+        }
+    )
+
+    prompt_hash = stable_hash(
+        {"version": spec.m2["prompt_version"], "prompt": spec.m2["prompt"]}
+    )
+    variants = m2_decoding_variants(spec.m2)
+    decoding_hashes = {name: stable_hash(decoding) for name, decoding in variants}
+    cache_counts: Counter[str] = Counter()
+    for path in (spec.private_root / "m2" / "summaries").glob("*/rows/*.json"):
+        payload = _json_object(path, "M2 summary cache row")
+        if payload.get("prompt_hash") != prompt_hash:
+            cache_counts["legacy_other_prompt"] += 1
+        elif payload.get("decoding_hash") == decoding_hashes["primary_4096"]:
+            cache_counts["primary_4096_candidates"] += 1
+        elif payload.get("decoding_hash") == decoding_hashes["overflow_8192"]:
+            cache_counts["overflow_8192_candidates"] += 1
+        elif payload.get("decoding_hash") == decoding_hashes["extended_16384"]:
+            cache_counts["extended_16384_candidates"] += 1
+        else:
+            cache_counts["other_decoding"] += 1
+    if cache_counts["primary_4096_candidates"] < 1:
+        raise ContractError("Fidelity-v5 recovery found no preserved 4,096-token candidates.")
+    if cache_counts["overflow_8192_candidates"] < 1:
+        raise ContractError("Fidelity-v5 recovery found no preserved 8,192-token candidates.")
+    if cache_counts["extended_16384_candidates"] != 0:
+        raise ContractError("Fidelity-v5 preflight requires an unused extended cache identity.")
+
+    live_hashes: list[str] = []
+    live_completion_tokens: list[int | None] = []
+    live_embedding_tokens: list[int] = []
+    model_identity_hash = None
+    if live_endpoint_check:
+        client = OnPremiseSummaryClient(
+            api_base=str(spec.m2["api_base"]),
+            model=str(spec.m2["instruction_model"]),
+        )
+        model_identity_hash = client.model_revision_hash()
+        grouped = group_structured_facts(
+            "[TIME=31_60_DAYS_BEFORE_T]\n"
+            "- LOINC/SYNTHETIC-A | value=0.1 | unit=unit-A | source=measurement\n"
+            "- LOINC/SYNTHETIC-A | value=0.2 | unit=unit-A | source=measurement\n"
+            "[TIME=1_30_DAYS_BEFORE_T]\n"
+            "- SNOMED/SYNTHETIC-B | value=2 | unit=unit-B | source=measurement"
+        )
+        extended_decoding = dict(variants[-1][1])
+        token_validator = LocalSummaryTokenValidator(
+            model_root / spec.model_directory_name,
+            maximum_tokens=M2_EMBEDDING_MAX_TOKENS,
+        )
+        for attempt in range(3):
+            generation = client.summarize_response(
+                system_prompt=str(spec.m2["prompt"]),
+                source_text=grouped,
+                decoding=extended_decoding,
+            )
+            if generation.summary.strip() != grouped:
+                raise ContractError(
+                    f"Extended M2 preflight attempt {attempt + 1} did not copy grouped source exactly."
+                )
+            live_hashes.append(stable_hash(generation.summary))
+            live_completion_tokens.append(generation.completion_tokens)
+            live_embedding_tokens.append(token_validator(generation.summary))
+
+    report = {
+        "status": "PASS",
+        "mode": "M2_FIDELITY_V5_EXTENDED_GENERATION_RECOVERY",
+        "source_git_commit": current_source_git_commit,
+        "superseded_m2_git_commit": old_commit,
+        "m3_compute_git_commit": "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+        "required_failed_job_536_status_sha256": required_failed_status_hashes,
+        "observed_job_536_final_status_sha256": observed_job_536_status_hashes,
+        "job_536_length_failure_log_sha256": failure_log_hashes,
+        "canceled_downstream_jobs": [537, 538],
+        "m3_complete_sentinel_sha256": m3_status_hashes,
+        "cache_inventory": dict(sorted(cache_counts.items())),
+        "primary_decoding_hash": decoding_hashes["primary_4096"],
+        "overflow_decoding_hash": decoding_hashes["overflow_8192"],
+        "extended_decoding_hash": decoding_hashes["extended_16384"],
+        "existing_cache_identities_unchanged": True,
+        "reuse_requires_exact_grouped_source_copy": True,
+        "extended_generation_tokens": 16384,
+        "request_timeout_seconds": 1200,
+        "downstream_embedding_tokens": M2_EMBEDDING_MAX_TOKENS,
         "summary_shards_per_task": 8,
         "maximum_active_summary_shards": 2,
         "concurrent_requests_per_shard": 4,

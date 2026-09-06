@@ -50,6 +50,7 @@ from temporal_ehr.final_m23.recovery import (
     _validate_fidelity_v2_config_change,
     _validate_fidelity_v3_config_change,
     _validate_fidelity_v4_config_change,
+    _validate_fidelity_v5_config_change,
     _validate_only_allowed_config_change,
 )
 from temporal_ehr.final_m23.reporting import (
@@ -79,6 +80,7 @@ def test_prompt4_hard_gate_uses_verified_job451_handoff_and_no_test() -> None:
     assert spec.m2["prompt_version"] == "m2_fidelity_v3_grouped_structured"
     assert spec.m2["decoding"]["max_output_tokens"] == 4096
     assert spec.m2["overflow_decoding"] == {"max_output_tokens": 8192}
+    assert spec.m2["extended_decoding"] == {"max_output_tokens": 16384}
     assert spec.m2["execution"]["summary_shards_per_task"] == 8
 
 
@@ -212,12 +214,22 @@ def test_prompt4_fidelity_v3_validator_rejects_superseding_v4_config() -> None:
         )
 
 
-def test_prompt4_fidelity_v4_changes_only_overflow_and_shard_controls() -> None:
-    _validate_fidelity_v4_config_change(
+def test_prompt4_fidelity_v4_validator_rejects_superseding_v5_config() -> None:
+    with pytest.raises(ContractError, match="more than"):
+        _validate_fidelity_v4_config_change(
+            Path.cwd(),
+            "818103ea4851081ab827529781efb9f526044765",
+            CONFIG,
+            "93e3aca0bcc504067b44a6d28b55dc5e7054d4ce22cdf9cbe1dbf81a9e1beca2",
+        )
+
+
+def test_prompt4_fidelity_v5_changes_only_extended_generation_cap() -> None:
+    _validate_fidelity_v5_config_change(
         Path.cwd(),
-        "818103ea4851081ab827529781efb9f526044765",
+        "8682cb494b779efd0d6ea16785c08f61702bb4a0",
         CONFIG,
-        "93e3aca0bcc504067b44a6d28b55dc5e7054d4ce22cdf9cbe1dbf81a9e1beca2",
+        "00a17a0f4c39b0e246bc3ed5e2fc8e26296275cf50d52d75881afc1a34a93980",
     )
 
 
@@ -316,10 +328,17 @@ def test_summary_cache_key_covers_all_required_generation_inputs() -> None:
 
 def test_m2_adaptive_decoding_preserves_primary_identity_and_separates_overflow() -> None:
     variants = m2_decoding_variants(_spec().m2)
-    assert [name for name, _ in variants] == ["primary_4096", "overflow_8192"]
-    assert [decoding["max_output_tokens"] for _, decoding in variants] == [4096, 8192]
-    assert variants[0][1]["temperature"] == variants[1][1]["temperature"] == 0.0
-    assert stable_hash(variants[0][1]) != stable_hash(variants[1][1])
+    assert [name for name, _ in variants] == [
+        "primary_4096",
+        "overflow_8192",
+        "extended_16384",
+    ]
+    assert [decoding["max_output_tokens"] for _, decoding in variants] == [4096, 8192, 16384]
+    assert all(decoding["temperature"] == 0.0 for _, decoding in variants)
+    assert len({stable_hash(decoding) for _, decoding in variants}) == 3
+    assert OnPremiseSummaryClient(
+        api_base="http://10.45.177.17:8000/v1", model="synthetic"
+    ).timeout_seconds == 1200
 
 
 def test_m2_summary_shards_are_deterministic_complete_and_disjoint() -> None:
@@ -923,6 +942,26 @@ def test_prompt4_m2_fidelity_v4_recovery_is_sharded_resumable_and_notified() -> 
     assert "M2_REFERENCE_MAX_INDEX" in general_submit
     assert "M2_SENSITIVITY_MAX_INDEX" in general_submit
     assert "scripts/slurm/24c_m2_summary_shard_array.sbatch" in general_submit
+
+
+def test_prompt4_m2_fidelity_v5_recovery_preserves_old_tiers_and_extends_generation() -> None:
+    submit = Path("scripts/slurm/submit_prompt4_m2_fidelity_v5.sh").read_text(
+        encoding="utf-8"
+    )
+    validator = Path("scripts/validate_prompt4_m2_fidelity_v5_recovery.py").read_text(
+        encoding="utf-8"
+    )
+    recovery = Path("src/temporal_ehr/final_m23/recovery.py").read_text(encoding="utf-8")
+    assert "prompt4_m2_fidelity_v5_after_536.yaml" in submit
+    assert "validate_prompt4_m2_fidelity_v5_recovery.py" in submit
+    assert "Job 536 must leave the queue" in submit
+    assert "0-${LAST_SHARD_INDEX}%${M2_SUMMARY_PARALLELISM}" in submit
+    assert "M3_PREP_ARRAY_JOB_ID=470" in submit
+    assert "M3_ARRAY_JOB_ID=471" in submit
+    assert "validate_prompt4_m2_fidelity_v5_recovery" in validator
+    assert "finish_reason='length'" in recovery
+    assert 'decoding_hashes["extended_16384"]' in recovery
+    assert '"downstream_embedding_tokens": M2_EMBEDDING_MAX_TOKENS' in recovery
 
 
 def test_prompt4_m3_aggregate_supports_explicit_validated_compute_commit() -> None:

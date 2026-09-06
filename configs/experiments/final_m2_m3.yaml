@@ -62,6 +62,8 @@ m2:
       enable_thinking: false
   overflow_decoding:
     max_output_tokens: 8192
+  extended_decoding:
+    max_output_tokens: 16384
   execution:
     concurrent_requests: 4
     request_retries: 3
