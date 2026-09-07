@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""Validate capacity-selected Prompt 4 M2 recovery after slow job 559."""
+
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+
+from temporal_ehr.final_m23.recovery import (
+    validate_prompt4_m2_fidelity_v7_recovery,
+    write_recovery_report,
+)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--authorization", type=Path, required=True)
+    parser.add_argument("--capacity-report", type=Path, required=True)
+    parser.add_argument("--capacity-job-id", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parents[1]
+    report = validate_prompt4_m2_fidelity_v7_recovery(
+        repository_root=root,
+        config_path=root / args.config,
+        authorization_path=args.authorization,
+        current_source_git_commit=os.environ.get("FINAL_M23_GIT_COMMIT", ""),
+        capacity_report_path=root / args.capacity_report,
+        capacity_job_id=args.capacity_job_id,
+    )
+    write_recovery_report(root / args.output, report)
+    print("PASS: Prompt 4 M2 fidelity-v7 capacity recovery validated")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -104,13 +104,19 @@ job 545 then proved exact copying incompatible with bounded summarization: shard
 failed, six on over-context exact outputs and two on non-exact copies; 545_8/545_9 and downstream
 548/549 were canceled. Preserve 536-538 and 545/548/549; do not rerun those recovery versions.
 
-The active fidelity-v6 recovery uses one new 6,144-token bounded structured-summary identity,
+Fidelity-v6 uses one new 6,144-token bounded structured-summary identity,
 requires `finish_reason=stop`, rejects unsupported codes/values/units, altered recurrence, invalid
 format, changed time-label sequence, or movement of a fact between time blocks, and reapplies
 row-level retention plus the unchanged 8,192-
 token downstream gate before cache admission. It uses 16 shards per task, four active shards, two
 requests per shard, and three fixed contract attempts. This restores actual compression required by
 Prompt 4 without changing M1 source evidence, M3 470/471, any outcome definition, or the test lock.
+Array 559 at commit `38e2b7b8` proved that identity can admit valid rows, but the first four shards
+ran at only 3.4-5.5 accepted rows/hour/shard and projected 37-69 hours remaining near the 12-hour
+limit. Preserve and stop jobs 559-561. The active fidelity-v7 recovery keeps the exact fidelity-v6
+scientific/cache identity, revalidates every candidate row, runs a synthetic-only 8/16/24/32
+capacity ladder, and changes only execution to eight requests per shard and 192 shards per task.
+Do not combine any legacy prompt identity, rerun M3 470/471, or access held-out performance.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those

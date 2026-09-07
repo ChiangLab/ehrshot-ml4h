@@ -56,7 +56,7 @@ from temporal_ehr.final_m23.recovery import (
     _validate_fidelity_v3_config_change,
     _validate_fidelity_v4_config_change,
     _validate_fidelity_v5_config_change,
-    _validate_fidelity_v6_config_change,
+    _validate_fidelity_v7_config_change,
     _validate_only_allowed_config_change,
 )
 from temporal_ehr.final_m23.reporting import (
@@ -88,7 +88,8 @@ def test_prompt4_hard_gate_uses_verified_job451_handoff_and_no_test() -> None:
     assert "overflow_decoding" not in spec.m2
     assert "extended_decoding" not in spec.m2
     assert spec.m2["execution"]["generation_contract_attempts"] == 3
-    assert spec.m2["execution"]["summary_shards_per_task"] == 16
+    assert spec.m2["execution"]["concurrent_requests"] == 8
+    assert spec.m2["execution"]["summary_shards_per_task"] == 192
 
 
 class _SyntheticSummaryClient(OnPremiseSummaryClient):
@@ -241,12 +242,12 @@ def test_prompt4_fidelity_v5_validator_rejects_superseding_v6_config() -> None:
         )
 
 
-def test_prompt4_fidelity_v6_changes_only_bounded_summary_and_scheduling() -> None:
-    _validate_fidelity_v6_config_change(
+def test_prompt4_fidelity_v7_changes_only_execution_scheduling() -> None:
+    _validate_fidelity_v7_config_change(
         Path.cwd(),
-        "223acb0d1082c0440c03bd87b7ac7e3022df2b83",
+        "38e2b7b8a7e17cc895c053b35f358784f90ed263",
         CONFIG,
-        "3d5319e1aaa12316efe53fd55ee00998815eea232fff9e09556001115159f22e",
+        "434ef018e7db071986220e58b9f68b863830185c6dafb02f352cbaccf347675b",
     )
 
 
@@ -1117,7 +1118,7 @@ def test_prompt4_m2_fidelity_v4_recovery_is_sharded_resumable_and_notified() -> 
     assert "reusing immutable fidelity-v4 preflight" in submit
     assert "--summary-shard-index" in shard
     assert "--summary-shard-count" in shard
-    assert "#SBATCH --array=0-63%4" in shard
+    assert "#SBATCH --array=0-767%4" in shard
     assert "#SBATCH --time=12:00:00" in shard
     assert "final_initialize" in shard
     assert "final_mark_success" in shard
@@ -1168,12 +1169,55 @@ def test_prompt4_m2_fidelity_v6_uses_bounded_summaries_and_smaller_shards() -> N
     assert "validate_prompt4_m2_fidelity_v6_recovery" in validator
     assert "--live-endpoint-check" in submit
     assert "26_m3_task_seed_array.sbatch" not in submit
+    assert "M2_SUMMARY_SHARDS_PER_TASK=16" in submit
+
+
+def test_prompt4_m2_fidelity_v7_is_capacity_selected_and_finely_sharded() -> None:
+    submit = Path("scripts/slurm/submit_prompt4_m2_fidelity_v7.sh").read_text(
+        encoding="utf-8"
+    )
+    validator = Path("scripts/validate_prompt4_m2_fidelity_v7_recovery.py").read_text(
+        encoding="utf-8"
+    )
     shard = Path("scripts/slurm/24c_m2_summary_shard_array.sbatch").read_text(
         encoding="utf-8"
     )
-    assert "#SBATCH --array=0-63%4" in shard
+    assert "prompt4_m2_fidelity_v7_after_559.yaml" in submit
+    assert "validate_prompt4_m2_fidelity_v7_recovery.py" in submit
+    assert "M2_SUMMARY_SHARDS_PER_TASK=192" in submit
+    assert "M2_REQUESTS_PER_SHARD=8" in submit
+    assert "recommended_global_concurrency" in submit
+    assert '0-${LAST_SHARD_INDEX}%${M2_SUMMARY_PARALLELISM}' in submit
+    assert "Jobs 559, 560, and 561 must leave the queue" in submit
+    assert "M3_PREP_ARRAY_JOB_ID=470" in submit
+    assert "M3_ARRAY_JOB_ID=471" in submit
+    assert "validate_prompt4_m2_fidelity_v7_recovery" in validator
+    assert "#SBATCH --array=0-767%4" in shard
     assert "#SBATCH --cpus-per-task=4" in shard
     assert "#SBATCH --mem=16G" in shard
+    assert "192 shards for each of four tasks" in shard
+
+
+def test_prompt4_m2_capacity_v7_is_synthetic_and_bounded_at_32() -> None:
+    path = Path("scripts/dgx/benchmark_prompt4_m2_capacity_v7.py")
+    source = path.read_text(encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("prompt4_m2_capacity_v7", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.CONCURRENCY_LADDER == (8, 16, 24, 32)
+    assert module.SYNTHETIC_FACT_COUNT == 96
+    assert "SYNTHETIC_ENGINEERING_CAPACITY_ONLY" in source
+    assert "patient_data_used" in source
+    assert "EHRSHOT_DATA_PATH" not in source
+    assert module.recommend_concurrency(
+        [
+            {"concurrency": 8, "failed_requests": 0, "completion_tokens_per_second": 1.0},
+            {"concurrency": 16, "failed_requests": 0, "completion_tokens_per_second": 1.8},
+            {"concurrency": 24, "failed_requests": 0, "completion_tokens_per_second": 2.0},
+            {"concurrency": 32, "failed_requests": 0, "completion_tokens_per_second": 1.9},
+        ]
+    ) == 32
     progress = Path("scripts/slurm/prompt4_m2_progress.sh").read_text(
         encoding="utf-8"
     )

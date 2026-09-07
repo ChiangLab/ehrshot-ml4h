@@ -293,6 +293,49 @@ def _validate_fidelity_v6_config_change(
         raise ContractError("Fidelity-v6 recovery changed more than its authorized M2 controls.")
 
 
+def _validate_fidelity_v7_config_change(
+    root: Path,
+    old_commit: str,
+    config_path: Path,
+    expected_upstream_sha256: str,
+) -> None:
+    """Allow only finer shards and higher endpoint concurrency after job 559."""
+    relative = config_path.resolve().relative_to(root.resolve()).as_posix()
+    previous_text = subprocess.run(
+        ["git", "show", f"{old_commit}:{relative}"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if hashlib.sha256(previous_text.encode("utf-8")).hexdigest() != expected_upstream_sha256:
+        raise ContractError("Upstream Prompt 4 fidelity-v7 configuration hash drifted.")
+    previous = yaml.safe_load(previous_text)
+    current = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    previous_execution = previous["m2"].pop("execution")
+    current_execution = current["m2"].pop("execution")
+    if (
+        previous_execution
+        != {
+            "concurrent_requests": 2,
+            "request_retries": 3,
+            "generation_contract_attempts": 3,
+            "summary_shards_per_task": 16,
+            "progress_interval_rows": 25,
+        }
+        or current_execution
+        != {
+            "concurrent_requests": 8,
+            "request_retries": 3,
+            "generation_contract_attempts": 3,
+            "summary_shards_per_task": 192,
+            "progress_interval_rows": 25,
+        }
+        or current != previous
+    ):
+        raise ContractError("Fidelity-v7 recovery changed more than execution scheduling controls.")
+
+
 def _validate_complete_status(root: Path, status_id: str, commit: str, run_kind: str) -> str:
     directory = root / "outputs/private/run_status" / status_id
     payload = _json_object(directory / "COMPLETE.json", f"job-{status_id} COMPLETE sentinel")
@@ -1591,6 +1634,259 @@ def validate_prompt4_m2_fidelity_v6_recovery(
         "live_synthetic_contract_attempts": sorted(live_contract_attempts),
         "live_synthetic_runtime_seconds": live_runtime_seconds,
         "stable_served_model_identity_hash": model_identity_hash,
+        "m3_rerun_required": False,
+        "test_predictions_or_performance_used": False,
+        "patient_content_included": False,
+    }
+    assert_privacy_safe_report(json.dumps(report, sort_keys=True))
+    return report
+
+
+def validate_prompt4_m2_fidelity_v7_recovery(
+    *,
+    repository_root: Path,
+    config_path: Path,
+    authorization_path: Path,
+    current_source_git_commit: str,
+    capacity_report_path: Path,
+    capacity_job_id: str,
+) -> dict[str, Any]:
+    """Gate capacity-selected, fine-grained resumption after slow job 559."""
+    root = repository_root.resolve()
+    if FULL_COMMIT.fullmatch(current_source_git_commit) is None:
+        raise ContractError("M2 fidelity-v7 recovery requires a full current Git commit.")
+    auth = _load_authorization(root, authorization_path)
+    old_commit = str(auth.get("upstream_source_git_commit", ""))
+    expected_controls = {
+        "preserve_job_559_status_logs_and_caches": True,
+        "preserve_canceled_downstream_jobs": True,
+        "reuse_only_revalidated_fidelity_v6_cache_rows": True,
+        "prompt_model_decoding_and_cache_identity_unchanged": True,
+        "deterministic_shards_per_task": 192,
+        "concurrent_requests_per_shard": 8,
+        "synthetic_capacity_ladder": [8, 16, 24, 32],
+        "maximum_total_endpoint_requests": 32,
+        "require_finish_reason_stop": True,
+        "require_row_level_fidelity": True,
+        "require_downstream_8192_token_fit": True,
+        "require_manual_40_history_review": True,
+        "rerun_m2": True,
+        "rerun_m3": False,
+        "test_predictions_or_performance_used": False,
+    }
+    expected_jobs = {
+        "slow_m2_summary_array": {
+            "job_id": 559,
+            "indices": [0, 1, 2, 3],
+            "failure_reason": "throughput_incompatible_with_twelve_hour_shards",
+        },
+        "canceled_or_unstarted_m2_summary_indices": {
+            "job_id": 559,
+            "indices": list(range(4, 64)),
+        },
+        "canceled_m2_embedding": {"job_id": 560},
+        "canceled_m2_review": {"job_id": 561},
+        "m3_preparation": {"job_id": 470, "indices": list(range(4))},
+        "m3_seed_array": {"job_id": 471, "indices": list(range(12))},
+    }
+    if (
+        auth.get("version") != 7
+        or auth.get("mode") != "M2_FIDELITY_V7_CAPACITY_SHARDED_RECOVERY"
+        or auth.get("experiment_id") != "locked_four_task_m2_m3_v1"
+        or old_commit != "38e2b7b8a7e17cc895c053b35f358784f90ed263"
+        or current_source_git_commit == old_commit
+        or auth.get("controls") != expected_controls
+        or auth.get("source_jobs") != expected_jobs
+    ):
+        raise ContractError("Prompt 4 M2 fidelity-v7 recovery authorization drifted.")
+    _validate_fidelity_v7_config_change(
+        root,
+        old_commit,
+        config_path,
+        str(auth.get("upstream_experiment_config_sha256", "")),
+    )
+    spec = load_final_m23_authorization(config_path, repository_root=root)
+
+    job_559_status_hashes: dict[str, dict[str, str]] = {}
+    completed_job_559_indices: list[int] = []
+    for index in range(64):
+        status_id = f"559_{index}"
+        directory = root / "outputs/private/run_status" / status_id
+        if (directory / "COMPLETE.json").is_file():
+            job_559_status_hashes[status_id] = {
+                "COMPLETE.json": _validate_complete_status(
+                    root,
+                    status_id,
+                    old_commit,
+                    "final_m2_summary_shard_reference",
+                )
+            }
+            completed_job_559_indices.append(index)
+        else:
+            hashes = _validate_canceled_or_unstarted_status(
+                root,
+                status_id,
+                old_commit,
+                "final_m2_summary_shard_reference",
+            )
+            if hashes:
+                job_559_status_hashes[status_id] = hashes
+    if len(job_559_status_hashes) < 4:
+        raise ContractError("Fidelity-v7 recovery requires preserved job-559 execution evidence.")
+
+    job_559_log_hashes: dict[str, str] = {}
+    progress_logs = 0
+    for index in range(64):
+        path = root / f"slurm-tehr-final-m2-shard-559_{index}.out"
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        progress_logs += int('"event": "m2_summary_progress"' in text)
+        job_559_log_hashes[f"559_{index}"] = file_sha256(path)
+    if progress_logs < 4:
+        raise ContractError("Job 559 lacks four aggregate progress logs proving slow execution.")
+
+    status_root = root / "outputs/private/run_status"
+    for downstream_id in ("560", "561"):
+        names = [downstream_id, *(f"{downstream_id}_{index}" for index in range(4))]
+        if any((status_root / name / "COMPLETE.json").exists() for name in names):
+            raise ContractError(
+                f"Canceled downstream job {downstream_id} unexpectedly has COMPLETE evidence."
+            )
+
+    capacity_path = capacity_report_path.resolve()
+    if not capacity_path.is_relative_to((root / "reports/generated/engineering").resolve()):
+        raise ContractError("M2 capacity evidence must remain in the engineering-report namespace.")
+    capacity = _json_object(capacity_path, "M2 fidelity-v7 capacity report")
+    recommendation = capacity.get("recommended_global_concurrency")
+    capacity_results = capacity.get("capacity_results")
+    if (
+        capacity.get("status") != "PASS"
+        or capacity.get("mode") != "PROMPT4_M2_SYNTHETIC_CAPACITY_V7"
+        or capacity.get("scope") != "SYNTHETIC_ENGINEERING_CAPACITY_ONLY"
+        or capacity.get("source_git_commit") != current_source_git_commit
+        or capacity.get("patient_data_used") is not False
+        or capacity.get("outcomes_used") is not False
+        or capacity.get("test_performance_used") is not False
+        or capacity.get("instruction_model") != spec.m2["instruction_model"]
+        or capacity.get("synthetic_fact_count") != 96
+        or capacity.get("decoding_max_output_tokens")
+        != spec.m2["decoding"]["max_output_tokens"]
+        or not isinstance(capacity_results, list)
+        or not capacity_results
+        or recommendation not in (8, 16, 24, 32)
+        or capacity.get("recommended_summary_parallelism") != recommendation // 8
+    ):
+        raise ContractError("M2 fidelity-v7 capacity evidence failed its privacy or selection gate.")
+    observed_settings = [row.get("concurrency") for row in capacity_results]
+    if observed_settings != [8, 16, 24, 32][: len(capacity_results)]:
+        raise ContractError("M2 capacity ladder settings are incomplete or out of order.")
+    for row in capacity_results:
+        concurrency = row.get("concurrency")
+        succeeded = row.get("successful_requests")
+        failed = row.get("failed_requests")
+        token_rate = row.get("completion_tokens_per_second")
+        if (
+            not isinstance(concurrency, int)
+            or isinstance(concurrency, bool)
+            or not isinstance(succeeded, int)
+            or isinstance(succeeded, bool)
+            or not isinstance(failed, int)
+            or isinstance(failed, bool)
+            or row.get("requests") != concurrency
+            or succeeded + failed != concurrency
+            or succeeded < 0
+            or failed < 0
+            or not isinstance(token_rate, (int, float))
+            or isinstance(token_rate, bool)
+            or token_rate < 0
+        ):
+            raise ContractError("M2 capacity ladder contains invalid aggregate measurements.")
+    if capacity_results[0]["failed_requests"] != 0:
+        raise ContractError("M2 capacity ladder did not establish an error-free baseline.")
+    failed_rows = [row for row in capacity_results if row["failed_requests"] > 0]
+    if failed_rows and (len(failed_rows) != 1 or failed_rows[0] is not capacity_results[-1]):
+        raise ContractError("M2 capacity ladder continued after an unstable setting.")
+    recommended_row = next(
+        (row for row in capacity_results if row["concurrency"] == recommendation),
+        None,
+    )
+    if (
+        recommended_row is None
+        or recommended_row["failed_requests"] != 0
+        or recommended_row["completion_tokens_per_second"] <= 0
+    ):
+        raise ContractError("M2 capacity recommendation is not backed by a stable measured row.")
+    capacity_status_sha256 = _validate_complete_status(
+        root,
+        capacity_job_id,
+        current_source_git_commit,
+        "prompt4_m2_synthetic_capacity_v7",
+    )
+
+    prompt_hash = stable_hash(
+        {"version": spec.m2["prompt_version"], "prompt": spec.m2["prompt"]}
+    )
+    cache_inventory: Counter[str] = Counter()
+    for path in (spec.private_root / "m2" / "summaries").glob("*/rows/*.json"):
+        payload = _json_object(path, "M2 summary cache row")
+        if (
+            payload.get("prompt_hash") == prompt_hash
+            and payload.get("bounded_validation_passed") is True
+            and isinstance(payload.get("bounded_validation"), dict)
+            and payload["bounded_validation"].get("status") == "PASS"
+        ):
+            cache_inventory["candidate_fidelity_v6_rows"] += 1
+        else:
+            cache_inventory["preserved_ineligible_or_legacy_rows"] += 1
+    if cache_inventory["candidate_fidelity_v6_rows"] < 1:
+        raise ContractError("Fidelity-v7 recovery found no candidate fidelity-v6 cache rows.")
+
+    m3_status_hashes = {
+        f"470_{index}": _validate_complete_status(
+            root,
+            f"470_{index}",
+            "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+            "final_m3_prepare_reference",
+        )
+        for index in range(4)
+    }
+    m3_status_hashes.update(
+        {
+            f"471_{index}": _validate_complete_status(
+                root,
+                f"471_{index}",
+                "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+                "final_m3_task_seed_reference",
+            )
+            for index in range(12)
+        }
+    )
+
+    report = {
+        "status": "PASS",
+        "mode": "M2_FIDELITY_V7_CAPACITY_SHARDED_RECOVERY",
+        "source_git_commit": current_source_git_commit,
+        "superseded_execution_git_commit": old_commit,
+        "m3_compute_git_commit": "1a97d8f1a70c47e18f96a2f56e63a370d6ff9913",
+        "thinking_disabled": (
+            spec.m2["decoding"]["chat_template_kwargs"]["enable_thinking"] is False
+        ),
+        "job_559_status_sha256": job_559_status_hashes,
+        "job_559_log_sha256": job_559_log_hashes,
+        "job_559_completed_indices": completed_job_559_indices,
+        "canceled_downstream_jobs": [560, 561],
+        "candidate_cache_inventory": dict(sorted(cache_inventory.items())),
+        "cache_rows_revalidated_before_reuse": True,
+        "capacity_job_id": capacity_job_id,
+        "capacity_complete_sentinel_sha256": capacity_status_sha256,
+        "capacity_report_sha256": file_sha256(capacity_path),
+        "recommended_global_concurrency": recommendation,
+        "recommended_summary_parallelism": recommendation // 8,
+        "summary_shards_per_task": 192,
+        "concurrent_requests_per_shard": 8,
+        "maximum_total_endpoint_requests": 32,
+        "m3_complete_sentinel_sha256": m3_status_hashes,
         "m3_rerun_required": False,
         "test_predictions_or_performance_used": False,
         "patient_content_included": False,

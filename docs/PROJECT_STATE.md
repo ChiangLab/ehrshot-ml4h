@@ -1,6 +1,6 @@
 # Project state
 
-Status date: 2026-09-06
+Status date: 2026-09-07
 
 ## Source state
 
@@ -223,3 +223,11 @@ Status date: 2026-09-06
   smaller. Earlier cache rows and job evidence are preserved but cannot satisfy fidelity-v6 keys.
   The full 162-test local synthetic suite, tracked-source Ruff checks, changed-shell syntax checks,
   durable-context check, and pre-push privacy/safety check pass; governed DGX validation is pending.
+- Fidelity-v6 array 559 at commit `38e2b7b8` demonstrated valid resumable row admission but an
+  execution rate incompatible with its 12-hour shards. At approximately 11.6 hours, its first four
+  anemia shards had accepted 25-50 rows each at 3.4-5.5 rows/hour/shard and projected 37-69
+  additional hours. Jobs 560/561 remained dependency-blocked. The fidelity-v7 recovery preserves
+  every accepted fidelity-v6 row and the complete scientific/cache identity, measures 8/16/24/32
+  endpoint concurrency with synthetic records only, selects concurrency using throughput/failure
+  evidence only, and uses 192 deterministic shards per task with eight requests per active shard.
+  M3 470/471 and the held-out test lock remain unchanged.

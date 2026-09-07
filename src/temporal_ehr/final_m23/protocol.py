@@ -138,10 +138,10 @@ def load_final_m23_authorization(
         raise ContractError("M2 bounded summaries use one fixed decoding identity.")
     execution = m2.get("execution")
     if not isinstance(execution, dict) or (
-        int(execution.get("concurrent_requests", 0)) not in range(1, 17)
+        int(execution.get("concurrent_requests", 0)) != 8
         or int(execution.get("request_retries", -1)) not in range(0, 6)
         or int(execution.get("generation_contract_attempts", 0)) != 3
-        or int(execution.get("summary_shards_per_task", 0)) != 16
+        or int(execution.get("summary_shards_per_task", 0)) != 192
         or int(execution.get("progress_interval_rows", 0)) not in range(1, 101)
     ):
         raise ContractError("M2 execution concurrency, retry, shard, or progress policy is not safely locked.")

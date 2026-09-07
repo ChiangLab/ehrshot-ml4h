@@ -65,10 +65,10 @@ m2:
     chat_template_kwargs:
       enable_thinking: false
   execution:
-    concurrent_requests: 2
+    concurrent_requests: 8
     request_retries: 3
     generation_contract_attempts: 3
-    summary_shards_per_task: 16
+    summary_shards_per_task: 192
     progress_interval_rows: 25
   reference_condition: C1_correct_compact_time
   fidelity_condition: C3_shuffled_earlier_time_labels

@@ -1,6 +1,6 @@
 # Current scientific protocol
 
-Status date: 2026-09-06. This is a concise operational index; the final August 14 protocol and
+Status date: 2026-09-07. This is a concise operational index; the final August 14 protocol and
 `PROTOCOL_DEVIATIONS.md` remain authoritative for detail and unresolved differences.
 
 ## Cohort and panel
@@ -93,6 +93,11 @@ Status date: 2026-09-06. This is a concise operational index; the final August 1
   embedding gate. Sixteen shards per task with four active and two requests each keep the same
   maximum eight endpoint requests while reducing timeout exposure. Legacy caches remain preserved
   but cannot satisfy the new prompt/cache identity.
+- Fidelity-v6 job 559 demonstrated that eight total endpoint requests were too slow for its
+  16-shard-per-task execution envelope. Fidelity-v7 keeps the exact prompt, decoding, model,
+  source, row validator, and cache identity; it uses an outcome-free synthetic 8/16/24/32 request
+  ladder to select operational concurrency and 192 shards per task to bound each resumable unit.
+  These are scheduling controls only and cannot be selected from validation performance.
 - M3: frozen per-window embeddings followed by a small unidirectional GRU; mean pooling plus
   logistic regression is the required capacity comparator. The locked architecture uses at most 64
   recent nonempty windows, 512 tokens per window, hidden size 128, dropout 0.1, AdamW, and three

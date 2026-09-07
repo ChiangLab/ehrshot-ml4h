@@ -1252,3 +1252,34 @@ Set every Boolean decision and `review_complete` explicitly. Then run
 `bash scripts/slurm/submit_prompt4_execution.sh reference-finalize`. A failed M2 fidelity gate makes
 M2 ineligible but does not invalidate the already-complete M1 or M3 reference evidence. Do not
 submit sensitivity or access held-out test data until validation-only approach selection completes.
+
+## Post-559 capacity-selected M2 recovery
+
+The fidelity-v6 instructions above are historical. Array 559 admitted valid bounded summaries but
+measured only 3.4-5.5 accepted rows/hour/shard, so repeated 12-hour resumptions would take weeks.
+Preserve and stop jobs 559-561. Fidelity-v7 keeps the same summary cache identity and all scientific
+controls while testing 8, 16, 24, and 32 concurrent synthetic requests. It selects only from
+error-free settings using aggregate token throughput, then submits 192 shards per task with eight
+requests per active shard. Existing rows still pass the complete fidelity-v6 validator before use.
+
+After pulling the fidelity-v7 commit and exporting the standard project/model/data variables:
+
+```bash
+bash scripts/slurm/submit_prompt4_m2_capacity_v7.sh
+source outputs/private/prompt4_m2_capacity_v7_job_id.env
+squeue -j "${CAPACITY_JOB_ID}" -o "%.18i %.2t %.10M %.10l %R"
+tail -f "slurm-tehr-p4-m2-cap-v7-${CAPACITY_JOB_ID}.out"
+```
+
+Require `outputs/private/run_status/${CAPACITY_JOB_ID}/COMPLETE.json` and a PASS capacity report.
+Then run:
+
+```bash
+bash scripts/slurm/submit_prompt4_m2_fidelity_v7.sh
+source outputs/private/prompt4_reference_job_ids.env
+bash scripts/slurm/prompt4_m2_progress.sh
+```
+
+The submission record captures the capacity report hash, selected global concurrency, shard count,
+and reused M3 evidence. Do not infer completion from an empty queue: require 768 summary-shard
+COMPLETE sentinels, four embedding COMPLETE sentinels, and the review-packet COMPLETE sentinel.
