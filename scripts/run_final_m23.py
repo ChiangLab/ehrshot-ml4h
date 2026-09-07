@@ -81,6 +81,7 @@ def parse_args() -> argparse.Namespace:
     m3_task.add_argument("--stage", choices=("reference", "sensitivity"), required=True)
     m3_fit = commands.add_parser("m3-fit")
     m3_fit.add_argument("--stage", choices=("reference", "sensitivity"), required=True)
+    commands.add_parser("m3-reference-report")
     commands.add_parser("freeze")
     return parser.parse_args()
 
@@ -145,17 +146,19 @@ def main() -> int:
             stage=args.stage,
             source_git_commit=_source_commit(),
         )
-    elif args.command == "m3-fit":
+    elif args.command in {"m3-fit", "m3-reference-report"}:
+        stage = "reference" if args.command == "m3-reference-report" else args.stage
         result = aggregate_m3_validation(
             repository_root=root,
             config_path=config_path,
-            stage=args.stage,
+            stage=stage,
             source_git_commit=_source_commit(),
             evidence_source_git_commit=os.environ.get(
                 "PROMPT4_M3_EVIDENCE_SOURCE_GIT_COMMIT"
             ),
             recovery_report_path=_optional_environment_path("PROMPT4_M2_RECOVERY_REPORT"),
             recovery_report_sha256=os.environ.get("PROMPT4_M2_RECOVERY_REPORT_SHA256"),
+            select_reference_approach=args.command == "m3-fit",
         )
     else:
         result = freeze_prompt4_manifest(

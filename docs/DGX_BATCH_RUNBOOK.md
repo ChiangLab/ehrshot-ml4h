@@ -1265,14 +1265,16 @@ requests per active shard. Existing rows still pass the complete fidelity-v6 val
 After pulling the fidelity-v7 commit and exporting the standard project/model/data variables:
 
 ```bash
-bash scripts/slurm/submit_prompt4_m2_capacity_v7.sh
-source outputs/private/prompt4_m2_capacity_v7_job_id.env
-squeue -j "${CAPACITY_JOB_ID}" -o "%.18i %.2t %.10M %.10l %R"
-tail -f "slurm-tehr-p4-m2-cap-v7-${CAPACITY_JOB_ID}.out"
+bash scripts/slurm/arm_prompt4_m2_overnight_v7.sh
+bash scripts/slurm/prompt4_overnight_status.sh
 ```
 
-Require `outputs/private/run_status/${CAPACITY_JOB_ID}/COMPLETE.json` and a PASS capacity report.
-Then run:
+The armed graph submits the synthetic capacity ladder and an `afterany` launcher. The launcher
+requires `outputs/private/run_status/${CAPACITY_JOB_ID}/COMPLETE.json` and a PASS capacity report;
+otherwise it records FAILED and submits no clinical-summary work. On success it runs
+`submit_prompt4_m2_fidelity_v7.sh` and also submits an independent aggregate-only M3 reference
+report job from canonical jobs 470/471. It does not rerun M3 task/seed computation and cannot select
+an approach until M2 is complete. For manual operation, the equivalent post-capacity command is:
 
 ```bash
 bash scripts/slurm/submit_prompt4_m2_fidelity_v7.sh

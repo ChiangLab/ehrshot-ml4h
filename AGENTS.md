@@ -117,6 +117,9 @@ limit. Preserve and stop jobs 559-561. The active fidelity-v7 recovery keeps the
 scientific/cache identity, revalidates every candidate row, runs a synthetic-only 8/16/24/32
 capacity ladder, and changes only execution to eight requests per shard and 192 shards per task.
 Do not combine any legacy prompt identity, rerun M3 470/471, or access held-out performance.
+Use `scripts/slurm/arm_prompt4_m2_overnight_v7.sh` for unattended execution: it launches M2 only
+after same-source capacity COMPLETE evidence and independently aggregates the existing M3 reference
+predictions without rerunning M3 computation or performing approach selection before M2 finishes.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those

@@ -1238,6 +1238,35 @@ def test_prompt4_m3_aggregate_supports_explicit_validated_compute_commit() -> No
     assert '"m3_compute_git_commit": evidence_commit' in source
     runner = Path("scripts/run_final_m23.py").read_text(encoding="utf-8")
     assert "PROMPT4_M3_EVIDENCE_SOURCE_GIT_COMMIT" in runner
+    assert "m3-reference-report" in runner
+    assert "select_reference_approach=args.command == \"m3-fit\"" in runner
+
+
+def test_prompt4_overnight_launcher_advances_without_test_or_m3_recompute() -> None:
+    arm = Path("scripts/slurm/arm_prompt4_m2_overnight_v7.sh").read_text(
+        encoding="utf-8"
+    )
+    launcher = Path(
+        "scripts/slurm/19c_launch_prompt4_m2_overnight_v7.sbatch"
+    ).read_text(encoding="utf-8")
+    m3_report = Path("scripts/slurm/27a_m3_reference_report.sbatch").read_text(
+        encoding="utf-8"
+    )
+    status = Path("scripts/slurm/prompt4_overnight_status.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "afterany:${CAPACITY_JOB_ID}" in arm
+    assert "automation is already armed" in arm
+    assert "submit_prompt4_m2_capacity_v7.sh" in arm
+    assert "submit_prompt4_m2_fidelity_v7.sh" in launcher
+    assert "27a_m3_reference_report.sbatch" in launcher
+    assert "26_m3_task_seed_array.sbatch" not in launcher
+    assert "m3-reference-report" in m3_report
+    assert "m3-task-seed" not in m3_report
+    assert "prompt4_m2_progress.sh" in status
+    combined = "\n".join((arm, launcher, m3_report, status))
+    assert "test performance" not in combined.casefold()
+    assert "held-out" not in combined.casefold()
 
 
 def test_final_job_wrapper_attempts_atomic_status_on_signals_and_container_failure() -> None:

@@ -411,6 +411,7 @@ def aggregate_m3_validation(
     evidence_source_git_commit: str | None = None,
     recovery_report_path: Path | None = None,
     recovery_report_sha256: str | None = None,
+    select_reference_approach: bool = True,
 ) -> dict[str, Any]:
     """Average three GRU seeds, report mean-pool baseline, and select after C1 references."""
     spec = load_final_m23_authorization(config_path, repository_root=repository_root)
@@ -575,7 +576,7 @@ def aggregate_m3_validation(
         "test_results_reported": False,
     }
     _write_aggregate_once(spec.aggregate_root / f"m3_{stage}.json", report)
-    if stage == "reference":
+    if stage == "reference" and select_reference_approach:
         m1 = json.loads(spec.m1_report_path.read_text(encoding="utf-8"))
         m2 = json.loads((spec.aggregate_root / "m2_reference.json").read_text(encoding="utf-8"))
         m1_metrics = m1["equal_weight_panel_macro"]["C1_complete_cohort"]["metrics"]

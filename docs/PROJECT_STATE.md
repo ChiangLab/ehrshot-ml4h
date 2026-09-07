@@ -230,4 +230,7 @@ Status date: 2026-09-07
   every accepted fidelity-v6 row and the complete scientific/cache identity, measures 8/16/24/32
   endpoint concurrency with synthetic records only, selects concurrency using throughput/failure
   evidence only, and uses 192 deterministic shards per task with eight requests per active shard.
-  M3 470/471 and the held-out test lock remain unchanged.
+  The unattended launcher advances from capacity measurement into M2 only after exact COMPLETE
+  evidence and separately aggregates existing M3 reference predictions while M2 runs; it never
+  reruns M3 task/seed computation or performs approach selection early. M3 470/471 and the held-out
+  test lock remain unchanged.
