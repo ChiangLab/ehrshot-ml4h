@@ -45,6 +45,11 @@ export EHRSHOT_DATA_PATH="${EVENT_PATH}"
 export EHRSHOT_ASSET_ROOT="${ASSET_ROOT}"
 export FINAL_M23_GIT_COMMIT="${SOURCE_GIT_COMMIT}"
 
+if [[ "${STAGE}" == "reference" ]]; then
+  echo "Direct reference submission is superseded; run submit_prompt4_m2_fidelity_v7.sh." >&2
+  exit 1
+fi
+
 srun \
   --partition=batch \
   --nodelist=dgit00038673 \

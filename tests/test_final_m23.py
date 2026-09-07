@@ -1126,6 +1126,7 @@ def test_prompt4_m2_fidelity_v4_recovery_is_sharded_resumable_and_notified() -> 
     general_submit = Path("scripts/slurm/submit_prompt4_execution.sh").read_text(
         encoding="utf-8"
     )
+    assert "Direct reference submission is superseded" in general_submit
     assert "M2_REFERENCE_MAX_INDEX" in general_submit
     assert "M2_SENSITIVITY_MAX_INDEX" in general_submit
     assert "scripts/slurm/24c_m2_summary_shard_array.sbatch" in general_submit
