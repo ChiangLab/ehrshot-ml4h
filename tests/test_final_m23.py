@@ -1188,6 +1188,7 @@ def test_prompt4_m2_fidelity_v7_is_capacity_selected_and_finely_sharded() -> Non
     assert "M2_SUMMARY_SHARDS_PER_TASK=192" in submit
     assert "M2_REQUESTS_PER_SHARD=8" in submit
     assert "recommended_global_concurrency" in submit
+    assert "MaxArraySize" in submit
     assert '0-${LAST_SHARD_INDEX}%${M2_SUMMARY_PARALLELISM}' in submit
     assert "Jobs 559, 560, and 561 must leave the queue" in submit
     assert "M3_PREP_ARRAY_JOB_ID=470" in submit
@@ -1197,6 +1198,8 @@ def test_prompt4_m2_fidelity_v7_is_capacity_selected_and_finely_sharded() -> Non
     assert "#SBATCH --cpus-per-task=4" in shard
     assert "#SBATCH --mem=16G" in shard
     assert "192 shards for each of four tasks" in shard
+    assert "TASK_INDEX=$((ARRAY_INDEX % 4))" in shard
+    assert "SHARD_INDEX=$((ARRAY_INDEX / 4))" in shard
 
 
 def test_prompt4_m2_capacity_v7_is_synthetic_and_bounded_at_32() -> None:

@@ -116,6 +116,12 @@ RECOVERY_REPORT_SHA256="$(sha256sum "${RECOVERY_REPORT}" | cut -d' ' -f1)"
 CAPACITY_REPORT_SHA256="$(sha256sum "${CAPACITY_REPORT}" | cut -d' ' -f1)"
 
 LAST_SHARD_INDEX=$((4 * M2_SUMMARY_SHARDS_PER_TASK - 1))
+MAX_ARRAY_SIZE="$(scontrol show config | awk '$1 == "MaxArraySize" {print $3; exit}')"
+if [[ ! "${MAX_ARRAY_SIZE}" =~ ^[1-9][0-9]*$ || \
+      "${LAST_SHARD_INDEX}" -ge "${MAX_ARRAY_SIZE}" ]]; then
+  echo "Slurm MaxArraySize=${MAX_ARRAY_SIZE:-unknown} cannot admit indices 0-${LAST_SHARD_INDEX}." >&2
+  exit 1
+fi
 MAIL_ARGS=(
   --mail-user="${SLURM_MAIL_USER}"
   --mail-type=END,FAIL,TIME_LIMIT_80,TIME_LIMIT_90

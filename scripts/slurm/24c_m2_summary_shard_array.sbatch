@@ -26,8 +26,9 @@ if [[ "${SHARDS_PER_TASK}" != "192" || "${ARRAY_INDEX}" -ge 768 ]]; then
   echo "Prompt 4 accelerated recovery requires 192 shards for each of four tasks." >&2
   exit 1
 fi
-TASK_INDEX=$((ARRAY_INDEX / SHARDS_PER_TASK))
-SHARD_INDEX=$((ARRAY_INDEX % SHARDS_PER_TASK))
+# Interleave tasks so the first active wave exercises all four task families.
+TASK_INDEX=$((ARRAY_INDEX % 4))
+SHARD_INDEX=$((ARRAY_INDEX / 4))
 
 source "${PROJECT_ROOT}/scripts/slurm/final_job_common.sh"
 final_initialize "final_m2_summary_shard_${M23_STAGE}" "${STATUS_ID}"
