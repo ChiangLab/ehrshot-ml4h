@@ -20,6 +20,7 @@ MANIFEST="reports/generated/submission/locked_four_task_m1_submission_v1/FROZEN_
 RESULT="reports/generated/submission/locked_four_task_m1_submission_v1/m1_held_out_results.json"
 PUBLICATION="reports/generated/submission/locked_four_task_m1_submission_v1/publication/PUBLICATION_COMPLETE.json"
 STATUS_FILE="outputs/private/prompt5_job_ids.env"
+RECOVERY_CONFIG="configs/recovery/prompt5_prepare_after_574.yaml"
 
 cd "${PROJECT_ROOT}"
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -37,6 +38,7 @@ ORIGINAL_PREPARE_ARRAY_JOB_ID="${PREPARE_ARRAY_JOB_ID}"
 ORIGINAL_EMBED_ARRAY_JOB_ID="${EMBED_ARRAY_JOB_ID}"
 ORIGINAL_FIT_JOB_ID="${FIT_JOB_ID}"
 ORIGINAL_PUBLICATION_JOB_ID="${PUBLICATION_JOB_ID}"
+ROOT_FAILED_PREPARE_ARRAY_JOB_ID="${ROOT_FAILED_PREPARE_ARRAY_JOB_ID:-${ORIGINAL_PREPARE_ARRAY_JOB_ID}}"
 ORIGINAL_JOB_LIST="${ORIGINAL_FREEZE_JOB_ID},${ORIGINAL_COHORT_JOB_ID},${ORIGINAL_PREPARE_ARRAY_JOB_ID},${ORIGINAL_EMBED_ARRAY_JOB_ID},${ORIGINAL_FIT_JOB_ID},${ORIGINAL_PUBLICATION_JOB_ID}"
 if squeue -h -j "${ORIGINAL_JOB_LIST}" | grep -q .; then
   echo "Refusing recovery while the recorded Prompt 5 graph is still active or pending." >&2
@@ -46,12 +48,58 @@ if squeue -h -j "${ORIGINAL_JOB_LIST}" | grep -q .; then
 fi
 
 CURRENT_COMMIT="$(git rev-parse HEAD)"
-MANIFEST_COMMIT="$(sed -n 's/^[[:space:]]*"source_git_commit": "\([0-9a-f]\{40\}\)",\{0,1\}$/\1/p' "${MANIFEST}")"
-if [[ "${CURRENT_COMMIT}" != "${MANIFEST_COMMIT}" ]]; then
-  echo "Refusing recovery: checkout does not match the immutable manifest commit." >&2
-  echo "  checkout=${CURRENT_COMMIT}" >&2
-  echo "  manifest=${MANIFEST_COMMIT:-unreadable}" >&2
+MANIFEST_COMMIT="$(
+  sed -n 's/^[[:space:]]*"source_git_commit": "\([0-9a-f]\{40\}\)",\{0,1\}$/\1/p' "${MANIFEST}" |
+    head -n 1
+)"
+[[ "${MANIFEST_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "Refusing recovery: frozen manifest source commit is unreadable." >&2
   exit 1
+}
+
+RECOVERY_CONFIG_SHA256=""
+FAILED_PREPARE_SENTINEL_HASHES=()
+if [[ "${CURRENT_COMMIT}" != "${MANIFEST_COMMIT}" ]]; then
+  [[ -s "${RECOVERY_CONFIG}" ]] || {
+    echo "Refusing cross-commit recovery without ${RECOVERY_CONFIG}." >&2
+    exit 1
+  }
+  AUTHORIZED_FROZEN_COMMIT="$(
+    sed -n 's/^frozen_source_git_commit:[[:space:]]*\([0-9a-f]\{40\}\)$/\1/p' "${RECOVERY_CONFIG}" |
+      head -n 1
+  )"
+  AUTHORIZED_FAILED_PREPARE_ID="$(
+    sed -n 's/^failed_prepare_array_job_id:[[:space:]]*\([0-9][0-9]*\)$/\1/p' "${RECOVERY_CONFIG}" |
+      head -n 1
+  )"
+  if [[ "${MANIFEST_COMMIT}" != "${AUTHORIZED_FROZEN_COMMIT}" || \
+        "${ROOT_FAILED_PREPARE_ARRAY_JOB_ID}" != "${AUTHORIZED_FAILED_PREPARE_ID}" ]]; then
+    echo "Refusing recovery: the frozen manifest or failed preparation graph is not authorized." >&2
+    exit 1
+  fi
+  for index in 0 1 2 3; do
+    source_status_id="${ROOT_FAILED_PREPARE_ARRAY_JOB_ID}_${index}"
+    failed_sentinel="outputs/private/run_status/${source_status_id}/FAILED.json"
+    source_log="slurm-tehr-m1-test-prepare-${source_status_id}.out"
+    [[ -s "${failed_sentinel}" && ! -e "outputs/private/run_status/${source_status_id}/COMPLETE.json" ]] || {
+      echo "Refusing recovery: ${source_status_id} lacks an exclusive FAILED sentinel." >&2
+      exit 1
+    }
+    grep -q "\"git_commit\": \"${MANIFEST_COMMIT}\"" "${failed_sentinel}" || {
+      echo "Refusing recovery: ${source_status_id} did not fail at the frozen source commit." >&2
+      exit 1
+    }
+    grep -q "M1 preparation prohibits the test split" "${source_log}" || {
+      echo "Refusing recovery: ${source_status_id} does not show the authorized preparation-boundary defect." >&2
+      exit 1
+    }
+    FAILED_PREPARE_SENTINEL_HASHES+=("$(sha256sum "${failed_sentinel}" | awk '{print $1}')")
+  done
+  RECOVERY_CONFIG_SHA256="$(sha256sum "${RECOVERY_CONFIG}" | awk '{print $1}')"
+  export FINAL_M1_FROZEN_SOURCE_GIT_COMMIT="${MANIFEST_COMMIT}"
+  export FINAL_STATUS_SOURCE_JOB_ID="${ROOT_FAILED_PREPARE_ARRAY_JOB_ID}"
+  export FINAL_STATUS_SOURCE_GIT_COMMIT="${MANIFEST_COMMIT}"
+  export FINAL_STATUS_RECOVERY_GIT_COMMIT="${CURRENT_COMMIT}"
 fi
 
 container_review() {
@@ -66,7 +114,7 @@ container_review() {
     --container-mounts=/data:/data \
     --container-workdir="${PROJECT_ROOT}" \
     --export=ALL \
-    env PYTHONPATH=src FINAL_M1_GIT_COMMIT="${CURRENT_COMMIT}" \
+    env PYTHONPATH=src FINAL_M1_GIT_COMMIT="${MANIFEST_COMMIT}" \
     .venv/bin/python scripts/review_final_submission.py --config "${CONFIG}" "$@"
 }
 
@@ -95,14 +143,19 @@ if [[ -s "${RESULT}" ]]; then
   EMBED_ARRAY_JOB_ID="${ORIGINAL_EMBED_ARRAY_JOB_ID}"
   FIT_JOB_ID="${ORIGINAL_FIT_JOB_ID}"
 else
-  COHORT_DEPENDENCY=()
   if container_review --require-test-cohort >/dev/null 2>&1; then
     COHORT_JOB_ID="${ORIGINAL_COHORT_JOB_ID}"
+    PREPARE_ARRAY_JOB_ID="$(
+      submit_job --array=0-3%1 --export=ALL \
+        scripts/slurm/31_prepare_m1_test_task_array.sbatch
+    )"
   else
     COHORT_JOB_ID="$(submit_job --export=ALL scripts/slurm/30_build_m1_test_cohort.sbatch)"
-    COHORT_DEPENDENCY=(--dependency="afterok:${COHORT_JOB_ID}")
+    PREPARE_ARRAY_JOB_ID="$(
+      submit_job --dependency="afterok:${COHORT_JOB_ID}" --array=0-3%1 --export=ALL \
+        scripts/slurm/31_prepare_m1_test_task_array.sbatch
+    )"
   fi
-  PREPARE_ARRAY_JOB_ID="$(submit_job "${COHORT_DEPENDENCY[@]}" --array=0-3%1 --export=ALL scripts/slurm/31_prepare_m1_test_task_array.sbatch)"
   EMBED_ARRAY_JOB_ID="$(submit_job --dependency="afterok:${PREPARE_ARRAY_JOB_ID}" --array=0-3%1 --export=ALL scripts/slurm/32_embed_m1_test_task_array.sbatch)"
   FIT_JOB_ID="$(submit_job --dependency="afterok:${EMBED_ARRAY_JOB_ID}" --export=ALL scripts/slurm/33_fit_m1_test_report.sbatch)"
   PUBLICATION_JOB_ID="$(submit_job --dependency="afterok:${FIT_JOB_ID}" --export=ALL scripts/slurm/34_build_m1_publication_artifacts.sbatch)"
@@ -115,7 +168,15 @@ RECOVERY_FILE="outputs/private/submissions/prompt5-m1-same-manifest-recovery-${P
 TEMPORARY_FILE="$(mktemp "${RECOVERY_FILE}.tmp.XXXXXX")"
 trap 'rm -f "${TEMPORARY_FILE}"' EXIT
 {
-  printf 'SOURCE_GIT_COMMIT=%q\n' "${CURRENT_COMMIT}"
+  printf 'SOURCE_GIT_COMMIT=%q\n' "${MANIFEST_COMMIT}"
+  printf 'RECOVERY_GIT_COMMIT=%q\n' "${CURRENT_COMMIT}"
+  printf 'RECOVERY_CONFIG=%q\n' "${RECOVERY_CONFIG}"
+  printf 'RECOVERY_CONFIG_SHA256=%q\n' "${RECOVERY_CONFIG_SHA256}"
+  printf 'ROOT_FAILED_PREPARE_ARRAY_JOB_ID=%q\n' "${ROOT_FAILED_PREPARE_ARRAY_JOB_ID}"
+  for index in 0 1 2 3; do
+    printf 'ROOT_FAILED_PREPARE_SENTINEL_%s_SHA256=%q\n' \
+      "${index}" "${FAILED_PREPARE_SENTINEL_HASHES[${index}]:-}"
+  done
   printf 'FREEZE_JOB_ID=%q\n' "${FREEZE_JOB_ID}"
   printf 'COHORT_JOB_ID=%q\n' "${COHORT_JOB_ID}"
   printf 'PREPARE_ARRAY_JOB_ID=%q\n' "${PREPARE_ARRAY_JOB_ID}"

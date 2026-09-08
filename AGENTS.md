@@ -127,15 +127,20 @@ sole primary approach for the one-time held-out evaluation. The completed M3 win
 is retained as validation-only secondary evidence; it is not run on held-out test. M2 one-pass
 summary embedding remains incomplete future work and is neither selected nor a held-out gate. This
 amendment does not change the locked tasks, cohorts, prediction times, temporal conditions,
-baselines, M1 hyperparameters, validation-selected penalties, or statistical plan. The held-out
-split remains unopened until an immutable, hash-pinned M1 submission manifest is frozen.
+baselines, M1 hyperparameters, validation-selected penalties, or statistical plan. The immutable
+M1-only manifest was frozen at commit `7315451`; freeze 572 and deterministic cohort 573 are
+COMPLETE, so the private access audit is open. No held-out embedding, prediction, or performance
+was produced before preparation jobs `574_0`-`574_3` failed on a default-closed shared serializer
+guard. Preserve that manifest, cohort, access audit, and every failed sentinel. Recover only the
+same manifest using the versioned execution repair, retaining `7315451` as the scientific source
+and recording the repair commit separately.
 
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those
 files as historical planning records. The sole active implementation prompt is
 `prompts/next/05_ONE_TIME_TEST_AND_PAPER_ARTIFACTS.md`. Prompt 5 may run the one-time M1 held-out
-evaluation only after its exact confirmation literal freezes the immutable manifest; M2 and M3
-cannot enter or alter that held-out analysis.
+evaluation only under the already-frozen immutable manifest; M2 and M3 cannot enter or alter that
+held-out analysis.
 
 Canonical phase prompts live under `prompts/completed/`, `prompts/next/`, and `prompts/planned/`.
 Files numbered 03 and 04 at the top level predate the current five-prompt execution plan and remain

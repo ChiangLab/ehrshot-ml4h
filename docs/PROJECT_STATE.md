@@ -46,10 +46,18 @@ Status date: 2026-09-07
   M3 remains validation-only and will not be run on held-out test. M2 did not complete despite
   fail-closed fidelity/runtime attempts; it is future work and no M2 output is eligible for
   selection or held-out evaluation.
-- The sole active stage is Prompt 5. Its source freezes the validated M1 report and M3 secondary
-  report by exact SHA-256, records the M1-only scope amendment, builds isolated test-only cohort and
-  caches, fits train-only validation-selected M1 heads, evaluates held-out test once, and generates
-  aggregate publication artifacts. No held-out row or performance has been accessed.
+- The sole active stage is Prompt 5. The immutable M1-only manifest was frozen at source commit
+  `731545119df7a313883e60967039b5e0ddd2a2f1`; freeze job 572 and deterministic test-cohort job 573
+  are COMPLETE. The private STARTED/COMPLETE audit therefore records held-out cohort access, but no
+  test embedding, prediction, or performance was produced. Preparation jobs `574_0`-`574_3` failed
+  before serialization because the shared `prepare_instance` guard did not expose the explicit
+  test-only authorization already enforced by the outer held-out iterator. Downstream 575-577 were
+  canceled. Preserve the manifest, cohort, access audit, and all failed sentinels.
+- The pending recovery adds only an explicit default-closed `allow_test` argument to the shared
+  preparation function, enabled solely by the isolated final-submission caller. It also separates
+  frozen scientific-source provenance from the recovery execution commit and repairs the resume
+  script's duplicate manifest-field parsing. It must resume the same manifest without refreezing or
+  rebuilding the cohort.
 
 - Prompt 2's isolated complete three-task engineering pilot is COMPLETE.
 - The pinned Qwen3-Embedding-0.6B artifact is complete on the DGX. Synthetic smoke job 411 loaded

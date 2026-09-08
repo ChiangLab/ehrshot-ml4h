@@ -1285,3 +1285,107 @@ bash scripts/slurm/prompt4_m2_progress.sh
 The submission record captures the capacity report hash, selected global concurrency, shard count,
 and reused M3 evidence. Do not infer completion from an empty queue: require 768 summary-shard
 COMPLETE sentinels, four embedding COMPLETE sentinels, and the review-packet COMPLETE sentinel.
+
+## Prompt 5 same-manifest preparation recovery after job 574
+
+The one-time M1 manifest was frozen at source commit
+`731545119df7a313883e60967039b5e0ddd2a2f1`. Jobs 572 and 573 completed manifest freeze and
+deterministic test-cohort construction. Preparation jobs `574_0` through `574_3` then failed before
+serialization because the shared M1 preparation function retained its default train/validation
+guard after the outer held-out iterator had made an explicit test-only authorization. Jobs 575-577
+were canceled. No embedding, prediction, performance metric, or publication artifact was produced.
+
+Preserve the frozen manifest, private access audit, cohort, and every original status/log file. Do
+not rerun `submit_m1_one_time_test.sh`, delete an output, replace the manifest, or rebuild the test
+cohort. The recovery source keeps the shared serializer default-closed, enables test only from the
+isolated final-submission caller, and records the recovery execution commit separately from the
+frozen scientific source. `configs/recovery/prompt5_prepare_after_574.yaml` limits this exception to
+the exact 574 failure graph.
+
+After the repair is committed and pushed from the Mac, connect to VPN and SSH to the DGX:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519_github_dgx
+git pull --ff-only origin main
+git status --short --branch
+
+export TEMPORAL_EHR_PROJECT_ROOT="$PWD"
+export TEMPORAL_EHR_MODEL_ROOT="/data/shared73/projects/wdelery/model_cache/qwen3-embedding"
+export EHRSHOT_ASSET_ROOT="/data/shared73/projects/wdelery/ehrshot-assets"
+export EHRSHOT_DATA_PATH="${EHRSHOT_ASSET_ROOT}/data.parquet"
+
+test -z "$(git status --porcelain)"
+test -z "$(squeue -h -u "$USER")"
+test -s "$EHRSHOT_DATA_PATH"
+test -s "$TEMPORAL_EHR_MODEL_ROOT/Qwen3-Embedding-0.6B/MODEL_ARTIFACT_MANIFEST.json"
+```
+
+Submit only the same-manifest recovery:
+
+```bash
+bash scripts/slurm/resume_m1_one_time_test.sh \
+  --confirm-resume=I_CONFIRM_RESUME_SAME_FROZEN_HELD_OUT_EVALUATION
+
+source outputs/private/prompt5_job_ids.env
+printf 'frozen_source=%s recovery_commit=%s\n' \
+  "$SOURCE_GIT_COMMIT" "$RECOVERY_GIT_COMMIT"
+bash scripts/slurm/prompt5_status.sh
+```
+
+The launcher checks the manifest source, exact `574_*` FAILED sentinels and failure signatures,
+their SHA-256 hashes, the existing cohort/access evidence, and the absence of a final result. It
+never submits freeze or cohort jobs. Its dependency graph is preparation array, embedding array,
+fit/report, then publication. Once the new IDs are visible with the expected dependencies, SSH and
+VPN may be disconnected; Slurm continues independently.
+
+Monitor after reconnecting:
+
+```bash
+cd /data/shared73/projects/wdelery/temporal-ehr-ml4h
+source outputs/private/prompt5_job_ids.env
+bash scripts/slurm/prompt5_status.sh
+squeue -j \
+  "${PREPARE_ARRAY_JOB_ID},${EMBED_ARRAY_JOB_ID},${FIT_JOB_ID},${PUBLICATION_JOB_ID}" \
+  -o "%.18i %.12P %.30j %.2t %.10M %.10l %R"
+```
+
+After the queue is empty, require every new sentinel before reading the aggregate result:
+
+```bash
+source outputs/private/prompt5_job_ids.env
+ALL_PASS=1
+for index in 0 1 2 3; do
+  for job_id in "${PREPARE_ARRAY_JOB_ID}_${index}" "${EMBED_ARRAY_JOB_ID}_${index}"; do
+    test -s "outputs/private/run_status/${job_id}/COMPLETE.json" &&
+      test ! -e "outputs/private/run_status/${job_id}/FAILED.json" || ALL_PASS=0
+  done
+done
+for job_id in "$FIT_JOB_ID" "$PUBLICATION_JOB_ID"; do
+  test -s "outputs/private/run_status/${job_id}/COMPLETE.json" &&
+    test ! -e "outputs/private/run_status/${job_id}/FAILED.json" || ALL_PASS=0
+done
+test "$ALL_PASS" -eq 1 && echo "PASS: recovered Prompt 5 graph is COMPLETE"
+
+test -s outputs/private/run_status/574_0/FAILED.json
+test -s outputs/private/run_status/574_1/FAILED.json
+test -s outputs/private/run_status/574_2/FAILED.json
+test -s outputs/private/run_status/574_3/FAILED.json
+```
+
+Finally validate semantics and publication hashes inside the pinned container. These validators do
+not print patient-level rows; the aggregate result may be reviewed only after they pass:
+
+```bash
+srun --partition=batch --nodelist=dgit00038673 --cpus-per-task=2 --mem=8G --time=00:30:00 \
+  --container-image=/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh \
+  --container-mounts=/data:/data --container-workdir="$PWD" --export=ALL \
+  env PYTHONPATH=src FINAL_M1_GIT_COMMIT="$SOURCE_GIT_COMMIT" \
+  .venv/bin/python scripts/review_final_submission.py \
+    --config configs/experiments/final_m1_submission.yaml --require-publication
+
+test -s reports/generated/submission/locked_four_task_m1_submission_v1/m1_held_out_results.json
+test -s reports/generated/submission/locked_four_task_m1_submission_v1/publication/PUBLICATION_COMPLETE.json
+test -s reports/generated/handoff/prompt5_submission_handoff.json
+```

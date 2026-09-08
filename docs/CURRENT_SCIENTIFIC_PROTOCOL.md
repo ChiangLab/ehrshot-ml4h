@@ -20,7 +20,9 @@ Status date: 2026-09-07. This is a concise operational index; the final August 1
   Prompt 4 M3 reference execution and aggregation are complete. M2 was not completed after repeated
   fail-closed fidelity/runtime attempts. Under the authorized 2026-09-07 scope amendment, M1 is the
   sole primary held-out approach, M3 remains validation-only secondary evidence, and M2 is future
-  work. Held-out evaluation remains locked until the M1-only manifest is frozen.
+  work. The M1-only manifest was frozen at commit `7315451`; deterministic test-cohort construction
+  completed, but no test prediction or performance was produced before preparation jobs `574_0`-
+  `574_3` failed on an execution-boundary guard. Recovery must retain that exact manifest.
 
 ## Time, windows, and evidence identity
 
@@ -113,9 +115,10 @@ Status date: 2026-09-07. This is a concise operational index; the final August 1
   all three fixed C3 seeds, latest-window, latest-code, count, and prevalence baselines. The two
   co-primary contrasts are C1 minus latest-window and C1 minus the mean prediction across the three
   C3 seeds. M3 remains validation-only; M2 remains incomplete future work.
-- Development and selection use training/validation only. The held-out test split is prohibited
-  until panel, serializers, prompts, hyperparameters, models, seeds, statistics, and an immutable
-  experiment manifest are frozen. Test results may be evaluated once and may not change design.
+- Development and selection used training/validation only. The held-out manifest is now frozen and
+  its one-time access audit records deterministic cohort construction. Test predictions and
+  performance have not yet been generated; recovery may only resume the same manifest and may not
+  change the design.
 
 ## Governance boundary
 

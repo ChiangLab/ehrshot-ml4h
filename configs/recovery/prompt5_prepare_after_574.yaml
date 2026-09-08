@@ -1,0 +1,13 @@
+version: 1
+recovery_id: prompt5_prepare_after_574
+frozen_source_git_commit: 731545119df7a313883e60967039b5e0ddd2a2f1
+failed_prepare_array_job_id: 574
+failed_stage: final_m1_test_prepare_task
+expected_error: M1 preparation prohibits the test split.
+authorized_change: >-
+  Permit the already-frozen, isolated held-out pipeline to call the shared M1 serializer with
+  explicit test-only authorization and repair single-value frozen-manifest commit parsing.
+scientific_configuration_changed: false
+manifest_may_be_replaced: false
+test_cohort_may_be_rebuilt: false
+original_failed_sentinels_may_be_overwritten: false

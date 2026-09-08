@@ -17,8 +17,21 @@ final_initialize() {
     "${FINAL_RUNTIME_ROOT}/huggingface"
   cd "${PROJECT_ROOT}"
   FINAL_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  FINAL_M1_GIT_COMMIT="$(git rev-parse HEAD)"
+  FINAL_M1_EXECUTION_GIT_COMMIT="$(git rev-parse HEAD)"
+  FINAL_M1_GIT_COMMIT="${FINAL_M1_FROZEN_SOURCE_GIT_COMMIT:-${FINAL_M1_EXECUTION_GIT_COMMIT}}"
+  if [[ ! "${FINAL_M1_EXECUTION_GIT_COMMIT}" =~ ^[0-9a-f]{40}$ || \
+        ! "${FINAL_M1_GIT_COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Invalid execution or frozen-source Git commit." >&2
+    return 1
+  fi
+  if [[ -n "${FINAL_M1_FROZEN_SOURCE_GIT_COMMIT:-}" ]]; then
+    FINAL_STATUS_SOURCE_GIT_COMMIT="${FINAL_STATUS_SOURCE_GIT_COMMIT:-${FINAL_M1_GIT_COMMIT}}"
+    FINAL_STATUS_RECOVERY_GIT_COMMIT="${FINAL_STATUS_RECOVERY_GIT_COMMIT:-${FINAL_M1_EXECUTION_GIT_COMMIT}}"
+  fi
+  export FINAL_M1_EXECUTION_GIT_COMMIT
   export FINAL_M1_GIT_COMMIT
+  export FINAL_STATUS_SOURCE_GIT_COMMIT
+  export FINAL_STATUS_RECOVERY_GIT_COMMIT
   export PYTHONHASHSEED=0
   export IPYTHONDIR="${FINAL_RUNTIME_ROOT}/ipython"
   export JUPYTER_CONFIG_DIR="${FINAL_RUNTIME_ROOT}/jupyter"
@@ -36,7 +49,7 @@ final_initialize() {
     --status-dir "${FINAL_STATUS_DIR}"
     --job-id "${FINAL_STATUS_ID}"
     --started-at "${FINAL_STARTED_AT}"
-    --git-commit "${FINAL_M1_GIT_COMMIT}"
+    --git-commit "${FINAL_M1_EXECUTION_GIT_COMMIT}"
     --run-kind "${FINAL_RUN_KIND}"
     --environment-audit ""
   )

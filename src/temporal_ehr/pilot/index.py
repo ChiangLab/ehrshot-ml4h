@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from temporal_ehr.data.contracts import ContractError
-from temporal_ehr.data.history import HistoryInstance
+from temporal_ehr.data.history import HistoryInstance, validate_requested_splits
 from temporal_ehr.serialization.blocks import (
     PredictionWindow,
     build_prediction_windows,
@@ -180,10 +180,12 @@ def prepare_instance(
     budget: int,
     model_hash: str,
     tokenizer_hash: str,
+    allow_test: bool = False,
 ) -> PreparedInstance:
     """Create private representation and window-index rows without model inference."""
-    if instance.split not in {"train", "validation"}:
+    if instance.split == "test" and not allow_test:
         raise ContractError("M1 preparation prohibits the test split.")
+    validate_requested_splits((instance.split,), allow_test=allow_test)
     events = tuple(event_from_mapping(row) for row in instance.events)
     if any(event.time >= instance.prediction_time for event in events):
         raise ContractError("M1 preparation received a future or exact-prediction-time event.")

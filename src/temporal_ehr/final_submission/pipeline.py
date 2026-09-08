@@ -310,6 +310,7 @@ def prepare_test_task(
             budget=spec.validation.token_budget,
             model_hash=identity.artifact_hash,
             tokenizer_hash=identity.tokenizer_hash,
+            allow_test=True,
         )
         index_rows.extend(prepared.index_rows)
         text_rows.extend(prepared.text_rows)
