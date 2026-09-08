@@ -9,6 +9,13 @@ validation experiment. Real data, model execution, and held-out evaluation are n
 Repository code is MIT-licensed. That license does not apply to EHRSHOT data or other governed
 assets, which remain subject to their official DUA and redistribution restrictions.
 
+The five-phase workflow and frozen one-time M1 held-out evaluation are complete. See the
+[finished project walkthrough](docs/FINISHED_PROJECT_WALKTHROUGH.md) for the clinical targets,
+B/M/C design, architecture, statistical analysis, final results, literature context, and permitted
+claims. The ML4H manuscript source is under `paper/ml4h2026/`; its
+[Zotero/Google Docs workflow](paper/ml4h2026/ZOTERO_GOOGLE_DOCS_WORKFLOW.md) provides the
+collaboration handoff.
+
 The raw Parquet file is queried in place with DuckDB. It is never copied into this repository or
 converted to a persistent database. Governed cohorts, model weights, embeddings, and generated
 reports remain Git-ignored. Unit tests use synthetic fixtures, but all scientific validation and

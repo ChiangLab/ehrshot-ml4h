@@ -96,7 +96,10 @@ records also contain recurrence, missingness, and copy-forwarded information.
 Recent long-context EHR models benefit from additional history on many tasks,
 while remaining sensitive to repetition and irregular observation
 \citep{wornow2025context}. Models trained with explicit temporal components can
-also benefit from time encodings \citep{pang2021cehrbert}. These findings do not
+also benefit from time encodings \citep{pang2021cehrbert}. Controlled studies of
+temporal tokenization nevertheless report task- and distribution-dependent
+effects rather than one uniformly superior encoding
+\citep{alattrach2025tokenization,liu2025temporal}. These findings do not
 establish whether a frozen text embedding uses the correct assignment of
 elapsed time to clinical events.
 
@@ -123,8 +126,9 @@ window-level sequence aggregation. Our contributions are:
   four EHRSHOT task families;
   \item temporal falsifications that change label indices without rearranging
   clinical events, preserving the final window and content matching;
-  \item operational comparison of direct, compressed, and sequential EHR
-  representations with recent-history and conventional baselines; and
+  \item a complete direct-embedding evaluation, secondary validation of a
+  window-sequence model, and fail-closed documentation of an incomplete
+  summary interface; and
   \item paired patient-level uncertainty estimates plus audits of fidelity,
   truncation, recurrence, and perturbation strength.
 \end{enumerate}
@@ -146,7 +150,16 @@ matrix computationally feasible; a prespecified runtime-only gate admits a
 subset of 8B M1 confirmations without using outcomes to select cells. The
 one-pass compression approach is motivated by abstraction as a long-context
 interface, but it is neither recursive nor a retrieval system and should not be
-described as a RAPTOR implementation \citep{sarthi2024raptor}.
+described as a RAPTOR implementation \citep{sarthi2024raptor}. PaReGTA instead
+combines visit-level templated text, contrastively adapted sentence embeddings,
+and temporal pooling, illustrating that explicit temporal structure may be more
+useful when it is learned and aggregated rather than appended to one flat text
+\citep{yoon2026paregta}.
+
+This work evaluates prediction from an observed history. It does not estimate
+the causal effect of changing when an intervention occurs; methods such as
+Earliest Disagreement Q-Evaluation address that distinct irregular-time policy
+evaluation problem under causal assumptions \citep{wald2025time}.
 
 \section{Methods}
 \label{sec:methods}
@@ -250,7 +263,9 @@ accessed held-out outcomes.
 Each of at most 64 recent nonempty windows is independently embedded with the
 frozen 0.6B model using 512 tokens per window. A fixed seed-20260819 projection
 maps embeddings to 256 dimensions. The primary sequence head is a one-layer,
-128-hidden-unit, unidirectional GRU with input dropout 0.1, trained with AdamW
+128-hidden-unit, unidirectional gated recurrent unit (GRU)
+\citep{cho2014gru} with input dropout 0.1, trained with AdamW
+\citep{loshchilov2019adamw}
 (learning rate $10^{-3}$, weight decay 0.01, batch size 32) for at most 50
 epochs. Early stopping uses validation AUROC with patience 5 and validation log
 loss only to resolve AUROC ties. Training is repeated under seeds 20260815--17.
@@ -268,7 +283,10 @@ four task estimates equally. Prespecified contrasts are C1--C0, C1--C2,
 C1--each C3 seed, C1--B1, and C1--B2, for both complete-cohort and eligible
 perturbable subsets as applicable. We also report C3 seed variability, retained
 history, recurrence, truncation, perturbation strength, runtime, peak memory,
-and storage.
+and storage. Holm correction controls the family-wise error rate for the two
+co-primary panel contrasts \citep{holm1979multiple}; Benjamini--Hochberg controls
+the false discovery rate across the prespecified per-task secondary family
+\citep{benjamini1995fdr}.
 
 The original selection rule compared complete-correct C1 validation results and
 required a challenger to improve equal-weight macro-AUROC by at least 0.005;
