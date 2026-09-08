@@ -29,12 +29,19 @@ class HistoryInstance:
     events: tuple[dict[str, Any], ...]
 
 
-def validate_requested_splits(splits: Sequence[str]) -> tuple[str, ...]:
-    """Fail closed unless a modeling request is restricted to train/validation."""
+def validate_requested_splits(
+    splits: Sequence[str],
+    *,
+    allow_test: bool = False,
+) -> tuple[str, ...]:
+    """Fail closed unless a request stays within its explicitly authorized splits."""
     requested = tuple(dict.fromkeys(splits))
-    disallowed = sorted(set(requested) - set(MODELING_SPLITS))
+    allowed = (*MODELING_SPLITS, "test") if allow_test else MODELING_SPLITS
+    disallowed = sorted(set(requested) - set(allowed))
     if disallowed:
-        raise ContractError(f"Modeling is restricted to {MODELING_SPLITS}; disallowed split request: {disallowed}.")
+        raise ContractError(f"Modeling is restricted to {allowed}; disallowed split request: {disallowed}.")
+    if "test" in requested and (not allow_test or requested != ("test",)):
+        raise ContractError("Held-out access must be an explicit test-only request.")
     if not requested:
         raise ContractError("At least one modeling split must be requested.")
     return requested
@@ -111,9 +118,10 @@ def iter_strict_histories(
     tasks: Sequence[str],
     splits: Sequence[str] = MODELING_SPLITS,
     batch_size: int = 65_536,
+    allow_test: bool = False,
 ) -> Iterator[HistoryInstance]:
     """Stream one history at a time; never materialize the full event table in Python."""
-    requested_splits = validate_requested_splits(splits)
+    requested_splits = validate_requested_splits(splits, allow_test=allow_test)
     if not tasks:
         raise ContractError("At least one task must be requested.")
     validate_cohort_splits(cohort_path)

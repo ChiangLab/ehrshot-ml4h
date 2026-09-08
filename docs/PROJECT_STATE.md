@@ -40,6 +40,17 @@ Status date: 2026-09-07
 
 ## Current build state
 
+- Prompt 4 is closed under the explicit 2026-09-07 scope amendment. M3 reference computation and
+  aggregation are complete and semantically valid: jobs 470/471 and report job 570, aggregate
+  SHA-256 `7ff518916137317475f8e8a867ea6bcb195cf3c09a27aed67f30b1dc11eb7030`.
+  M3 remains validation-only and will not be run on held-out test. M2 did not complete despite
+  fail-closed fidelity/runtime attempts; it is future work and no M2 output is eligible for
+  selection or held-out evaluation.
+- The sole active stage is Prompt 5. Its source freezes the validated M1 report and M3 secondary
+  report by exact SHA-256, records the M1-only scope amendment, builds isolated test-only cohort and
+  caches, fits train-only validation-selected M1 heads, evaluates held-out test once, and generates
+  aggregate publication artifacts. No held-out row or performance has been accessed.
+
 - Prompt 2's isolated complete three-task engineering pilot is COMPLETE.
 - The pinned Qwen3-Embedding-0.6B artifact is complete on the DGX. Synthetic smoke job 411 loaded
   it but failed the unit-norm contract because SentenceTransformers normalized finite vectors in

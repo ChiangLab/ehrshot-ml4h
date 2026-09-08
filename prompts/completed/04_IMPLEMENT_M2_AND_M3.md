@@ -1,4 +1,10 @@
 Prompt 4 — Implement Jeff’s M2 and M3 modeling approaches
+
+Closure note (2026-09-07): this phase is closed under the explicitly authorized scope amendment
+recorded in DEC-030/DEV-040. M3 reference validation completed and was aggregated; M2 did not pass
+its bounded-summary fidelity/runtime gates and remains incomplete future work. No Prompt 4 approach
+selection or test access occurred. Prompt 5 uses M1 as the primary held-out approach and M3 only as
+secondary validation evidence.
 Work in temporal-ehr-ml4h. Read AGENTS.md, the locked protocol, decision log, final M1 validation report, and all immutable run manifests.
 
 Do not change the final panel, cohort, serializers, windows, temporal conditions, prediction boundaries, test lock, or M1 results.

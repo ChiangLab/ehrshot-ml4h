@@ -52,9 +52,10 @@ def _cache_row_key(
     *,
     spec: FinalM1Authorization,
     identity: ModelIdentity,
+    experiment_id: str | None = None,
 ) -> str:
     return embedding_cache_key(
-        experiment_id=spec.experiment_id,
+        experiment_id=experiment_id or spec.experiment_id,
         task=str(row["task"]),
         instance_key=str(row["instance_key"]),
         representation=str(row["representation"]),
@@ -123,17 +124,26 @@ def _embed_condition(
     batch_size: int,
     source_git_commit: str,
     prepared_texts_sha256: str,
+    artifact_experiment_id: str | None = None,
+    cache_base: Path | None = None,
+    test_split_used: bool = False,
 ) -> dict[str, Any]:
-    row_keys = [_cache_row_key(row, spec=spec, identity=identity) for row in rows]
+    experiment_id = artifact_experiment_id or spec.experiment_id
+    row_keys = [
+        _cache_row_key(row, spec=spec, identity=identity, experiment_id=experiment_id)
+        for row in rows
+    ]
     if len(row_keys) != len(set(row_keys)):
         raise ContractError("One final condition contains duplicate model-specific cache keys.")
     if role == "primary" and row_keys != [str(row["cache_key"]) for row in rows]:
         raise ContractError("Primary final cache keys drifted from the prepared patient-window metadata.")
-    root = spec.private_root / "embeddings" / _model_slug(role, identity) / task / condition_slug(label)
+    root = (cache_base or spec.private_root / "embeddings") / _model_slug(
+        role, identity
+    ) / task / condition_slug(label)
     configuration_hash = stable_hash(
         {
             "namespace": "final_condition_cache_v1",
-            "experiment_id": spec.experiment_id,
+            "experiment_id": experiment_id,
             "experiment_config_hash": stable_hash(spec.raw),
             "source_git_commit": source_git_commit,
             "prepared_texts_sha256": prepared_texts_sha256,
@@ -172,7 +182,7 @@ def _embed_condition(
                 attempts = cache.finish_attempt()
             recovered = {
                 "status": "PASS",
-                "experiment_id": spec.experiment_id,
+                "experiment_id": experiment_id,
                 "source_git_commit": source_git_commit,
                 "task": task,
                 "condition": label,
@@ -199,7 +209,7 @@ def _embed_condition(
                 "peak_gpu_memory_bytes": 0,
                 "cache_complete": True,
                 "cache_complete_sha256": file_sha256(cache.complete_path),
-                "test_split_used": False,
+                "test_split_used": test_split_used,
                 "summary_recovered_from_verified_complete_cache": True,
             }
             _write_immutable_json(summary_path, recovered)
@@ -232,7 +242,7 @@ def _embed_condition(
         raise ContractError("Final condition embeddings failed full-cache FP32 unit-norm validation.")
     summary = {
         "status": "PASS",
-        "experiment_id": spec.experiment_id,
+        "experiment_id": experiment_id,
         "source_git_commit": source_git_commit,
         "task": task,
         "condition": label,
@@ -259,7 +269,7 @@ def _embed_condition(
         "peak_gpu_memory_bytes": encoder.peak_memory_bytes(),
         "cache_complete": True,
         "cache_complete_sha256": file_sha256(cache.complete_path),
-        "test_split_used": False,
+        "test_split_used": test_split_used,
     }
     _write_immutable_json(root / "SUMMARY.json", summary)
     return summary
@@ -385,9 +395,14 @@ def load_final_condition_embeddings(
     label: str,
     role: str,
     identity: ModelIdentity,
+    artifact_experiment_id: str | None = None,
+    cache_base: Path | None = None,
 ) -> tuple[list[dict[str, Any]], np.ndarray]:
     """Hash-verify one complete cache and its one-to-one private metadata table."""
-    root = spec.private_root / "embeddings" / _model_slug(role, identity) / task / condition_slug(label)
+    experiment_id = artifact_experiment_id or spec.experiment_id
+    root = (cache_base or spec.private_root / "embeddings") / _model_slug(
+        role, identity
+    ) / task / condition_slug(label)
     summary_path = root / "SUMMARY.json"
     cache_metadata_path = root / "CACHE.json"
     metadata_path = root / "patient_window_metadata.parquet"
@@ -399,7 +414,7 @@ def load_final_condition_embeddings(
     metadata.sort(key=lambda row: int(row["condition_embedding_row_index"]))
     if (
         summary.get("status") != "PASS"
-        or summary.get("experiment_id") != spec.experiment_id
+        or summary.get("experiment_id") != experiment_id
         or summary.get("task") != task
         or summary.get("condition") != label
         or summary.get("model_role") != role
@@ -410,7 +425,7 @@ def load_final_condition_embeddings(
     ):
         raise ContractError("Final condition summary/model/configuration identity drifted.")
     if any(
-        row.get("experiment_id") != spec.experiment_id
+        row.get("experiment_id") != experiment_id
         or row.get("task") != task
         or condition_label(row) != label
         or row.get("model_role") != role

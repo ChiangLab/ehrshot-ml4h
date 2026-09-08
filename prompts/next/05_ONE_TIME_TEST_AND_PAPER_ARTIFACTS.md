@@ -1,4 +1,10 @@
 Prompt 5 — One-time test evaluation and paper artifacts
+
+Authorized scope note (2026-09-07): M1 direct serialization is the primary one-time held-out
+approach. M3 is reported as secondary validation-only evidence. M2 is incomplete future work and is
+not a held-out or submission gate. The immutable repository authorization is
+`configs/experiments/final_m1_submission.yaml`; all remaining instructions apply within that frozen
+scope.
 Work in temporal-ehr-ml4h.
 
 This task is authorized only if:

@@ -27,6 +27,12 @@ AGGREGATE_REPORTS = (
     Path("reports/generated/final/locked_four_task_m2_m3_v1/m3_sensitivity.json"),
     Path("reports/generated/final/locked_four_task_m2_m3_v1/approach_selection.json"),
     Path("reports/generated/final/locked_four_task_m2_m3_v1/FROZEN_EXPERIMENT_MANIFEST.json"),
+    Path("reports/generated/submission/locked_four_task_m1_submission_v1/FROZEN_EXPERIMENT_MANIFEST.json"),
+    Path("reports/generated/submission/locked_four_task_m1_submission_v1/m1_held_out_results.json"),
+    Path(
+        "reports/generated/submission/locked_four_task_m1_submission_v1/"
+        "publication/PUBLICATION_COMPLETE.json"
+    ),
 )
 HASHED_PROTOCOL_FILES = (
     Path("configs/tasks.yaml"),
@@ -36,6 +42,7 @@ HASHED_PROTOCOL_FILES = (
     Path("configs/experiments/complete_three_task_pilot.yaml"),
     Path("configs/experiments/final_four_task_m1.yaml"),
     Path("configs/experiments/final_m2_m3.yaml"),
+    Path("configs/experiments/final_m1_submission.yaml"),
     Path("docs/CURRENT_SCIENTIFIC_PROTOCOL.md"),
     Path("docs/PROTOCOL_DEVIATIONS.md"),
 )
@@ -248,6 +255,45 @@ def _aggregate_summary(path: Path) -> dict[str, Any]:
                 "pilot_artifacts_reused": bool(payload.get("pilot_artifacts_reused", True)),
             }
         )
+    elif path.name == "m1_held_out_results.json":
+        summary.update(
+            {
+                "experiment_id": (
+                    payload.get("experiment_id")
+                    if payload.get("experiment_id") == "locked_four_task_m1_submission_v1"
+                    else "UNKNOWN"
+                ),
+                "protocol_decision": (
+                    payload.get("protocol_decision")
+                    if payload.get("protocol_decision")
+                    == "M1_PRIMARY_ONE_TIME_HELD_OUT_COMPLETE_NO_DESIGN_CHANGES_PERMITTED"
+                    else "UNKNOWN"
+                ),
+                "test_evaluated_once": bool(payload.get("test_evaluated_once")),
+                "protocol_modified_after_test_access": bool(
+                    payload.get("protocol_modified_after_test_access", True)
+                ),
+            }
+        )
+    elif path.name == "PUBLICATION_COMPLETE.json":
+        summary.update(
+            {
+                "experiment_id": (
+                    payload.get("experiment_id")
+                    if payload.get("experiment_id") == "locked_four_task_m1_submission_v1"
+                    else "UNKNOWN"
+                ),
+                "protocol_decision": (
+                    payload.get("protocol_decision")
+                    if payload.get("protocol_decision")
+                    == "PUBLICATION_ARTIFACTS_COMPLETE_FROM_FROZEN_HELD_OUT_REPORT"
+                    else "UNKNOWN"
+                ),
+                "patient_level_artifacts_included": bool(
+                    payload.get("patient_level_artifacts_included", True)
+                ),
+            }
+        )
     return summary
 
 
@@ -302,6 +348,12 @@ def _job_summary(root: Path, job_id: str) -> dict[str, Any]:
             "final_m3_fit_reference",
             "final_m3_fit_sensitivity",
             "final_prompt4_freeze",
+            "final_m1_submission_freeze",
+            "final_m1_test_cohort",
+            "final_m1_test_prepare_task",
+            "final_m1_test_embed_task",
+            "final_m1_test_fit_report",
+            "final_m1_publication_artifacts",
         }:
             run_kind = "UNKNOWN"
         safe_payload: dict[str, Any] = {"state": state, "run_kind": run_kind}

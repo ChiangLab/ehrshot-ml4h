@@ -1,0 +1,73 @@
+version: 1
+experiment_id: locked_four_task_m1_submission_v1
+mode: ONE_TIME_HELD_OUT
+status: LOCKED
+authorized_on: 2026-09-07
+authorization_basis: >-
+  William Delery explicitly authorized the deadline-preserving scope amendment: M1 direct
+  serialization is the primary held-out model, M3 is a secondary validation-only analysis, and
+  incomplete M2 remains documented future work rather than a test or submission blocker.
+base_validation_config: configs/experiments/final_four_task_m1.yaml
+tasks:
+  - lab_anemia
+  - guo_readmission
+  - new_hypertension
+  - chexpert
+splits:
+  fit: train
+  tune: validation
+  evaluate_once: test
+
+approach_scope:
+  primary_held_out: M1_direct_serialization
+  secondary_validation_only: M3_window_sequence_model
+  incomplete_future_work: M2_one_pass_summary_embedding
+
+validation_evidence:
+  m1:
+    path: reports/generated/final/locked_four_task_m1_v1/final_m1_validation.json
+    sha256: 6d16d6b2494042fd2c84d25ef790f030355738cf8512fb87cf5477f73a3e0c7a
+    protocol_decision: FINAL_M1_VALIDATION_COMPLETE_TEST_REMAINS_LOCKED
+  m3:
+    path: reports/generated/final/locked_four_task_m2_m3_v1/m3_reference.json
+    sha256: 7ff518916137317475f8e8a867ea6bcb195cf3c09a27aed67f30b1dc11eb7030
+    protocol_decision: M3_REFERENCE_VALIDATION_COMPLETE_TEST_REMAINS_LOCKED
+
+fitting:
+  validation_selected_regularization: true
+  refit_on_train_plus_validation: false
+  fit_split: train
+  evaluate_split: test
+  tie_rule: highest validation AUROC; smallest C wins an exact tie
+
+statistics:
+  bootstrap_replicates: 2000
+  bootstrap_seed: 20260818
+  resampling_unit: held-out patient cluster across tasks
+  identical_resamples_across_estimands: true
+  co_primary_contrasts:
+    - C1_correct_compact_time-minus-B1_latest_window_only
+    - C1_correct_compact_time-minus-C3_three_seed_probability_mean
+  co_primary_correction: Holm
+  per_task_secondary_contrasts:
+    - C1_correct_compact_time-minus-C0_order_only
+    - C1_correct_compact_time-minus-C2_reversed_earlier_gaps
+    - C1_correct_compact_time-minus-B2_latest_code_occurrence
+    - C1_correct_compact_time-minus-B3_code_count
+    - C1_correct_compact_time-minus-B4_training_prevalence
+  per_task_secondary_correction: Benjamini-Hochberg
+  practical_effect_threshold_macro_auroc: 0.01
+
+execution_controls:
+  explicit_confirmation: I_CONFIRM_ONE_TIME_HELD_OUT_EVALUATION
+  require_clean_git: true
+  freeze_before_test_access: true
+  allow_resume_same_manifest: true
+  allow_second_manifest: false
+  primary_model_only: true
+  test_performance_in_logs: false
+  governed_data_stays_on_dgx: true
+
+test_cohort_path: outputs/private/submission/locked_four_task_m1_submission_v1/cohort/test_cohort.parquet
+private_root: outputs/private/submission/locked_four_task_m1_submission_v1
+aggregate_root: reports/generated/submission/locked_four_task_m1_submission_v1

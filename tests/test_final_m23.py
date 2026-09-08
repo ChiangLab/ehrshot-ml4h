@@ -1312,7 +1312,11 @@ def test_prompt4_source_contains_no_external_summary_provider_or_patient_artifac
     assert "api.anthropic.com" not in source
     assert "outputs/private/final/locked_four_task_m2_m3_v1" in CONFIG.read_text(encoding="utf-8")
     assert "reports/generated/final/locked_four_task_m2_m3_v1" in CONFIG.read_text(encoding="utf-8")
-    assert not any(Path("reports/generated/final/locked_four_task_m2_m3_v1").glob("*.json"))
+    for path in Path("reports/generated/final/locked_four_task_m2_m3_v1").glob("*.json"):
+        text = path.read_text(encoding="utf-8").lower()
+        assert "subject_id" not in text
+        assert "prediction_time" not in text
+        assert "serialized_history" not in text
 
 
 def test_handoff_allowlist_includes_only_prompt4_aggregates_and_config() -> None:

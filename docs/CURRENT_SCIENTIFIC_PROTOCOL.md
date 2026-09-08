@@ -17,8 +17,10 @@ Status date: 2026-09-07. This is a concise operational index; the final August 1
 - Prompt 3's versioned `locked_four_task_m1_v1` foundation, runtime-only feasibility gate, four
   task-level embedding caches, final validation readout, and aggregate notebook are complete.
   Fit-only recovery job 451 validated exact upstream provenance while preserving failed job 446.
-  Prompt 4 M2/M3 source and local synthetic validation are complete; governed reference execution
-  is the next gate. Held-out evaluation remains locked.
+  Prompt 4 M3 reference execution and aggregation are complete. M2 was not completed after repeated
+  fail-closed fidelity/runtime attempts. Under the authorized 2026-09-07 scope amendment, M1 is the
+  sole primary held-out approach, M3 remains validation-only secondary evidence, and M2 is future
+  work. Held-out evaluation remains locked until the M1-only manifest is frozen.
 
 ## Time, windows, and evidence identity
 
@@ -107,9 +109,10 @@ Status date: 2026-09-07. This is a concise operational index; the final August 1
   Projection is applied to retained windows before right-padding, which is mathematically
   equivalent to projecting the zero-padded tensor while avoiding unnecessary padded 1,024-D
   storage. These are execution-only optimizations; the three seeds and every condition remain.
-- Whichever approach is selected must have complete-correct versus latest-window and
-  complete-correct versus all three fixed C3 seeds available before the held-out run. C0 and C2 are
-  secondary temporal sensitivities; M1 retains the complete temporal matrix regardless of selection.
+- M1 is the prospectively selected held-out approach. Its held-out matrix includes C0, C1, C2,
+  all three fixed C3 seeds, latest-window, latest-code, count, and prevalence baselines. The two
+  co-primary contrasts are C1 minus latest-window and C1 minus the mean prediction across the three
+  C3 seeds. M3 remains validation-only; M2 remains incomplete future work.
 - Development and selection use training/validation only. The held-out test split is prohibited
   until panel, serializers, prompts, hyperparameters, models, seeds, statistics, and an immutable
   experiment manifest are frozen. Test results may be evaluated once and may not change design.

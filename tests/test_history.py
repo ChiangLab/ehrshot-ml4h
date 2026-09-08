@@ -20,6 +20,12 @@ def test_modeling_split_request_fails_closed_on_test() -> None:
         validate_requested_splits(("train", "test"))
 
 
+def test_test_split_request_requires_explicit_test_only_scope() -> None:
+    assert validate_requested_splits(("test",), allow_test=True) == ("test",)
+    with pytest.raises(ContractError, match="test-only"):
+        validate_requested_splits(("validation", "test"), allow_test=True)
+
+
 def test_patient_cannot_cross_canonical_splits(tmp_path: Path) -> None:
     path = tmp_path / "synthetic_crossing_cohort.parquet"
     common = {

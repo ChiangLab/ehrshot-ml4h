@@ -2,41 +2,46 @@
 
 Status date: 2026-09-07
 
-Prompt 3 remains complete, canonical Prompt 4 M3 jobs 470/471 remain complete, and held-out test
-performance remains locked. Do not rerun M1 or M3. The sole active prompt remains
-`prompts/next/04_IMPLEMENT_M2_AND_M3.md`.
+Prompt 4 is closed under the explicit deadline-preserving scope amendment. M1 direct serialization
+is the sole primary approach for held-out evaluation. M3 reference validation is complete and is
+retained only as secondary validation evidence. M2 is incomplete future work and cannot block,
+enter, or alter the held-out analysis. No held-out test result has been accessed.
 
-Fidelity-v6 array 559 at commit `38e2b7b8` established valid row-level caching but inadequate
-throughput. After approximately 11.6 hours, its four active anemia shards had accepted only 25-50
-new rows each at approximately 3.4-5.5 rows/hour/shard and projected another 37-69 hours. The
-remaining 60 shards and dependent embedding/review jobs 560/561 cannot establish timely reference
-completion. Preserve every job-559 cache row, log, and sentinel; stop 559-561; do not resubmit the
-same 16-shard-per-task graph.
+The sole active prompt is `prompts/next/05_ONE_TIME_TEST_AND_PAPER_ARTIFACTS.md`. The Prompt 5
+implementation pins the completed M1 validation aggregate and M3 validation-only aggregate by
+SHA-256, freezes validation-selected task penalties, records the train-only fitting rule, and uses
+isolated submission-specific test artifacts. A private `STARTED.json` permanently records first
+test access; a second experiment identity or a rerun after final completion is rejected.
 
-The active fidelity-v7 recovery changes execution only. The M2 source evidence, Qwen model, prompt,
-decoding, cache identity, fidelity thresholds, downstream 8,192-token embedding gate, task panel,
-splits, and test lock remain unchanged. It uses a synthetic-only concurrency ladder at 8, 16, 24,
-and 32 requests, chooses the highest error-free setting within 90% of maximum measured token
-throughput, uses eight requests per shard, and divides each task into 192 deterministic shards.
-Previously accepted fidelity-v6 rows are eligible only after the unchanged full row validator
-passes again. The finer shards bound timeout loss; capacity-selected concurrency is the only source
-of potential wall-time acceleration.
-
-After pulling fidelity-v7 source into a clean DGX checkout and exporting the project/model/data
-variables, arm the unattended capacity-to-M2 chain:
+After committing and pushing the reviewed source, pull that exact clean commit on the DGX, export
+the usual project/model/data roots, and submit exactly once:
 
 ```bash
-bash scripts/slurm/arm_prompt4_m2_overnight_v7.sh
-bash scripts/slurm/prompt4_overnight_status.sh
+bash scripts/slurm/submit_m1_one_time_test.sh \
+  --confirm-test-evaluation=I_CONFIRM_ONE_TIME_HELD_OUT_EVALUATION
 ```
 
-The capacity job chooses an error-free tier, and an `afterany` launcher fails closed unless that job
-has a same-source COMPLETE sentinel. On success it submits the capacity-selected resumable M2 graph
-and, independently, aggregates the already-complete M3 reference predictions without rerunning M3
-training or attempting M1/M2/M3 selection early.
+The dependency chain freezes the manifest, constructs the official test-only cohort, prepares four
+strictly censored task datasets, embeds each task with Qwen3-Embedding-0.6B, fits the frozen M1
+heads and computes the fixed 2,000-resample patient bootstrap, then generates privacy-safe tables,
+figures, manuscript text, claims, limitations, and a reproducibility manifest. Monitor without
+printing patient data or performance:
 
-Do not combine legacy M2 prompts or exact-copy caches with fidelity-v6 summaries, and do not access
-test data. M2 reference computation is complete only when all 768 summary shards, all four
-embedding tasks, and the review-packet job have COMPLETE/exit-0 evidence. Then perform the private
-40-item fidelity review and run `submit_prompt4_execution.sh reference-finalize` for validation-only
-M2 fitting and the prespecified M1/M2/M3 approach selection.
+```bash
+bash scripts/slurm/prompt5_status.sh
+```
+
+Success requires COMPLETE/exit-0 sentinels for every stage, semantic validation, matching Git and
+manifest hashes, the private prediction artifact hash, an aggregate final report with no row-level
+fields, and `PUBLICATION_COMPLETE.json`. Never infer success from queue disappearance or file
+existence alone. Do not resubmit the top-level script after the manifest is frozen. If an
+intermediate stage fails, preserve it and resume the exact same manifest and verified caches with:
+
+```bash
+bash scripts/slurm/resume_m1_one_time_test.sh \
+  --confirm-resume=I_CONFIRM_RESUME_SAME_FROZEN_HELD_OUT_EVALUATION
+```
+
+The recovery launcher refuses a changed commit, dirty worktree, missing original submission record,
+or invalid manifest. It never freezes again and never reruns the held-out fit after a valid final
+result exists.

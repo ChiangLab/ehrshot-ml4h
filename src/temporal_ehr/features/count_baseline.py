@@ -78,9 +78,10 @@ def build_sparse_counts(
     split: str,
     vocabulary: Mapping[str, int],
     batch_size: int = 65_536,
+    allow_test: bool = False,
 ) -> SparseFeatureSet:
     """Stream grouped counts from DuckDB into CSR and apply log1p to nonzeros."""
-    validate_requested_splits((split,))
+    validate_requested_splits((split,), allow_test=allow_test)
     validate_cohort_splits(cohort_path)
     if not vocabulary:
         raise ContractError("The training vocabulary is empty.")

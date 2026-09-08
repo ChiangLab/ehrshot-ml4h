@@ -23,8 +23,10 @@ if [[ -n "${large_candidates}" ]]; then
   exit 1
 fi
 
-secret_hits="$(git ls-files -z --cached --others --exclude-standard | xargs -0 rg -n -I \
-  '(-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|sk-[A-Za-z0-9_-]{20,}|hf_[A-Za-z0-9]{20,})' || true)"
+secret_hits="$(git ls-files -z --cached --others --exclude-standard | xargs -0 -I{} sh -c \
+  'test -f "$1" && rg --with-filename -n -I \
+  '\''(-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|sk-[A-Za-z0-9_-]{20,}|hf_[A-Za-z0-9]{20,})'\'' "$1"' \
+  sh {} || true)"
 if [[ -n "${secret_hits}" ]]; then
   echo "BLOCKED: possible credential in a tracked file:" >&2
   echo "${secret_hits}" >&2

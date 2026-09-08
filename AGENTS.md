@@ -121,11 +121,21 @@ Use `scripts/slurm/arm_prompt4_m2_overnight_v7.sh` for unattended execution: it 
 after same-source capacity COMPLETE evidence and independently aggregates the existing M3 reference
 predictions without rerunning M3 computation or performing approach selection before M2 finishes.
 
+On 2026-09-07 William explicitly authorized a deadline-preserving scope amendment after the
+governed M2 capacity/launcher attempt failed before launching M2. M1 direct serialization is the
+sole primary approach for the one-time held-out evaluation. The completed M3 window-sequence model
+is retained as validation-only secondary evidence; it is not run on held-out test. M2 one-pass
+summary embedding remains incomplete future work and is neither selected nor a held-out gate. This
+amendment does not change the locked tasks, cohorts, prediction times, temporal conditions,
+baselines, M1 hyperparameters, validation-selected penalties, or statistical plan. The held-out
+split remains unopened until an immutable, hash-pinned M1 submission manifest is frozen.
+
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those
 files as historical planning records. The sole active implementation prompt is
-`prompts/next/04_IMPLEMENT_M2_AND_M3.md`. Prompt 4 may use only train/validation evidence and
-authorized on-premise summarization; held-out evaluation remains prohibited.
+`prompts/next/05_ONE_TIME_TEST_AND_PAPER_ARTIFACTS.md`. Prompt 5 may run the one-time M1 held-out
+evaluation only after its exact confirmation literal freezes the immutable manifest; M2 and M3
+cannot enter or alter that held-out analysis.
 
 Canonical phase prompts live under `prompts/completed/`, `prompts/next/`, and `prompts/planned/`.
 Files numbered 03 and 04 at the top level predate the current five-prompt execution plan and remain

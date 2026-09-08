@@ -54,6 +54,25 @@ class FinalM1Authorization:
     raw: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class M1SubmissionAuthorization:
+    """Frozen one-time held-out authorization layered on validated M1 evidence."""
+
+    experiment_id: str
+    tasks: tuple[str, ...]
+    validation: FinalM1Authorization
+    test_cohort_path: Path
+    private_root: Path
+    aggregate_root: Path
+    validation_report_path: Path
+    validation_report_sha256: str
+    m3_report_path: Path
+    m3_report_sha256: str
+    bootstrap_replicates: int
+    bootstrap_seed: int
+    raw: dict[str, Any]
+
+
 def load_experiment_panel(path: Path) -> dict[str, Any]:
     """Load and validate an experiment-panel document without choosing a panel."""
     with path.open(encoding="utf-8") as handle:
@@ -347,6 +366,124 @@ def load_final_m1_authorization(path: Path, *, repository_root: Path | None = No
         confirmatory_model_repository=str(confirmatory["repository"]),
         confirmatory_model_directory_name=str(confirmatory["directory_name"]),
         instructions={str(key): str(value) for key, value in instructions.items()},
+        raw=config,
+    )
+
+
+def load_m1_submission_authorization(
+    path: Path,
+    *,
+    repository_root: Path | None = None,
+) -> M1SubmissionAuthorization:
+    """Load the exact M1-primary, M3-validation-only one-time test authorization."""
+    root = (repository_root or Path.cwd()).resolve()
+    with path.open(encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    if not isinstance(config, dict):
+        raise ContractError("M1 submission authorization must be a YAML mapping.")
+    if (
+        config.get("version") != 1
+        or config.get("mode") != "ONE_TIME_HELD_OUT"
+        or config.get("status") != "LOCKED"
+        or config.get("experiment_id") != "locked_four_task_m1_submission_v1"
+        or config.get("tasks") != list(FINAL_TASKS)
+        or config.get("splits") != {"fit": "train", "tune": "validation", "evaluate_once": "test"}
+    ):
+        raise ContractError("One-time submission identity, tasks, or split roles drifted.")
+
+    base_path = root / str(config.get("base_validation_config", ""))
+    validation = load_final_m1_authorization(base_path, repository_root=root)
+    if validation.tasks != FINAL_TASKS:
+        raise ContractError("Submission authorization does not inherit the locked final panel.")
+
+    scope = config.get("approach_scope")
+    if scope != {
+        "primary_held_out": "M1_direct_serialization",
+        "secondary_validation_only": "M3_window_sequence_model",
+        "incomplete_future_work": "M2_one_pass_summary_embedding",
+    }:
+        raise ContractError("Authorized M1/M2/M3 submission scope drifted.")
+    fitting = config.get("fitting")
+    if fitting != {
+        "validation_selected_regularization": True,
+        "refit_on_train_plus_validation": False,
+        "fit_split": "train",
+        "evaluate_split": "test",
+        "tie_rule": "highest validation AUROC; smallest C wins an exact tie",
+    }:
+        raise ContractError("Frozen final-readout fitting rule drifted.")
+
+    statistics = config.get("statistics")
+    if (
+        not isinstance(statistics, dict)
+        or int(statistics.get("bootstrap_replicates", 0)) != 2000
+        or int(statistics.get("bootstrap_seed", -1)) != 20260818
+        or statistics.get("resampling_unit") != "held-out patient cluster across tasks"
+        or statistics.get("identical_resamples_across_estimands") is not True
+        or statistics.get("co_primary_contrasts")
+        != [
+            "C1_correct_compact_time-minus-B1_latest_window_only",
+            "C1_correct_compact_time-minus-C3_three_seed_probability_mean",
+        ]
+        or statistics.get("co_primary_correction") != "Holm"
+        or statistics.get("per_task_secondary_correction") != "Benjamini-Hochberg"
+    ):
+        raise ContractError("Frozen held-out statistical plan drifted.")
+
+    execution = config.get("execution_controls")
+    if (
+        not isinstance(execution, dict)
+        or execution.get("explicit_confirmation") != "I_CONFIRM_ONE_TIME_HELD_OUT_EVALUATION"
+        or execution.get("require_clean_git") is not True
+        or execution.get("freeze_before_test_access") is not True
+        or execution.get("allow_resume_same_manifest") is not True
+        or execution.get("allow_second_manifest") is not False
+        or execution.get("primary_model_only") is not True
+        or execution.get("test_performance_in_logs") is not False
+    ):
+        raise ContractError("One-time test execution controls drifted.")
+
+    evidence = config.get("validation_evidence")
+    if not isinstance(evidence, dict):
+        raise ContractError("Submission authorization lacks validation evidence.")
+    m1 = evidence.get("m1")
+    m3 = evidence.get("m3")
+    if (
+        not isinstance(m1, dict)
+        or m1.get("protocol_decision") != "FINAL_M1_VALIDATION_COMPLETE_TEST_REMAINS_LOCKED"
+        or not isinstance(m1.get("sha256"), str)
+        or len(str(m1["sha256"])) != 64
+        or not isinstance(m3, dict)
+        or m3.get("protocol_decision") != "M3_REFERENCE_VALIDATION_COMPLETE_TEST_REMAINS_LOCKED"
+        or not isinstance(m3.get("sha256"), str)
+        or len(str(m3["sha256"])) != 64
+    ):
+        raise ContractError("M1 or M3 validation evidence contract drifted.")
+
+    private_root = Path(str(config.get("private_root", "")))
+    aggregate_root = Path(str(config.get("aggregate_root", "")))
+    test_cohort_path = Path(str(config.get("test_cohort_path", "")))
+    expected_private = Path("outputs/private/submission/locked_four_task_m1_submission_v1")
+    expected_aggregate = Path("reports/generated/submission/locked_four_task_m1_submission_v1")
+    if (
+        private_root != expected_private
+        or aggregate_root != expected_aggregate
+        or not test_cohort_path.is_relative_to(expected_private)
+    ):
+        raise ContractError("One-time held-out artifacts drifted from their isolated namespace.")
+    return M1SubmissionAuthorization(
+        experiment_id="locked_four_task_m1_submission_v1",
+        tasks=FINAL_TASKS,
+        validation=validation,
+        test_cohort_path=root / test_cohort_path,
+        private_root=root / private_root,
+        aggregate_root=root / aggregate_root,
+        validation_report_path=root / str(m1["path"]),
+        validation_report_sha256=str(m1["sha256"]),
+        m3_report_path=root / str(m3["path"]),
+        m3_report_sha256=str(m3["sha256"]),
+        bootstrap_replicates=2000,
+        bootstrap_seed=20260818,
         raw=config,
     )
 
