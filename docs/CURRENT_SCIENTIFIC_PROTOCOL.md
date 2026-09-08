@@ -1,6 +1,6 @@
 # Current scientific protocol
 
-Status date: 2026-09-07. This is a concise operational index; the final August 14 protocol and
+Status date: 2026-09-08. This is a concise operational index; the final August 14 protocol and
 `PROTOCOL_DEVIATIONS.md` remain authoritative for detail and unresolved differences.
 
 ## Cohort and panel
@@ -18,11 +18,12 @@ Status date: 2026-09-07. This is a concise operational index; the final August 1
   task-level embedding caches, final validation readout, and aggregate notebook are complete.
   Fit-only recovery job 451 validated exact upstream provenance while preserving failed job 446.
   Prompt 4 M3 reference execution and aggregation are complete. M2 was not completed after repeated
-  fail-closed fidelity/runtime attempts. Under the authorized 2026-09-07 scope amendment, M1 is the
-  sole primary held-out approach, M3 remains validation-only secondary evidence, and M2 is future
-  work. The M1-only manifest was frozen at commit `7315451`; deterministic test-cohort construction
-  completed, but no test prediction or performance was produced before preparation jobs `574_0`-
-  `574_3` failed on an execution-boundary guard. Recovery must retain that exact manifest.
+  fail-closed fidelity/runtime attempts. Under the authorized 2026-09-07 scope amendment, M1 became
+  the sole primary held-out approach, M3 remained validation-only secondary evidence, and M2 became
+  future work. The M1-only manifest was frozen at commit `7315451`; recovery commit `e9f8f59`
+  retained that scientific source and completed preparation jobs `583_0`-`583_3`, embedding jobs
+  `585_0`-`585_3`, fit/report job 586, and publication job 587. The one-time held-out evaluation is
+  complete, and its protocol may not be changed in response to the observed result.
 
 ## Time, windows, and evidence identity
 
@@ -115,10 +116,10 @@ Status date: 2026-09-07. This is a concise operational index; the final August 1
   all three fixed C3 seeds, latest-window, latest-code, count, and prevalence baselines. The two
   co-primary contrasts are C1 minus latest-window and C1 minus the mean prediction across the three
   C3 seeds. M3 remains validation-only; M2 remains incomplete future work.
-- Development and selection used training/validation only. The held-out manifest is now frozen and
-  its one-time access audit records deterministic cohort construction. Test predictions and
-  performance have not yet been generated; recovery may only resume the same manifest and may not
-  change the design.
+- Development and selection used training/validation only. The held-out manifest was frozen before
+  access, its audit records deterministic cohort construction, and the held-out evaluation ran
+  exactly once. The aggregate report records no post-access protocol modification and no held-out
+  performance in job logs. No rerun or design change is permitted.
 
 ## Governance boundary
 

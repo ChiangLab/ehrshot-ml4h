@@ -135,17 +135,25 @@ guard. Preserve that manifest, cohort, access audit, and every failed sentinel. 
 same manifest using the versioned execution repair, retaining `7315451` as the scientific source
 and recording the repair commit separately.
 
+Prompt 5 is COMPLETE. Frozen scientific source commit `7315451` and recovery execution commit
+`e9f8f59` produced COMPLETE jobs 583/585/586/587 under the original immutable manifest. The
+held-out aggregate SHA-256 is `9c8af6cab8d1ec48e168b6ea6c1f045bf6dc4705f6f7ceccc21a8b7fabb8031f`
+and the publication sentinel SHA-256 is
+`e0e06c759379e9b9bd08fc78ce21114aef853eb71fe366a8065d3129dfc38c3c`. The report records one-time
+evaluation, no post-access protocol modification, and no held-out performance in job logs. Do not
+rerun, refit, select a different approach, or alter the analysis in response to these results.
+
 The completed Prompt 2 authorization supersedes the sequencing and narrower scope proposed in
 `prompts/03_BUILD_PHASE3_BASELINES.md` and `prompts/04_BUILD_THROUGHPUT_AND_M1_PILOT.md`. Keep those
-files as historical planning records. The sole active implementation prompt is
-`prompts/next/05_ONE_TIME_TEST_AND_PAPER_ARTIFACTS.md`. Prompt 5 may run the one-time M1 held-out
-evaluation only under the already-frozen immutable manifest; M2 and M3 cannot enter or alter that
-held-out analysis.
+files as historical planning records. All five canonical implementation prompts are complete.
+No active implementation prompt remains; paper finalization must use the frozen aggregate artifacts
+without initiating additional held-out computation.
 
 Canonical phase prompts live under `prompts/completed/`, `prompts/next/`, and `prompts/planned/`.
 Files numbered 03 and 04 at the top level predate the current five-prompt execution plan and remain
-historical only. `docs/NEXT_ACTION.md` names the sole active prompt and gate. After each phase,
+historical only. `docs/NEXT_ACTION.md` names the current finalization action. After each phase,
 update `PROJECT_STATE.md`, `DECISION_LOG.md` or `PROTOCOL_DEVIATIONS.md` as applicable,
 `RESULTS_REGISTRY.md`, and `NEXT_ACTION.md`; run `scripts/check_project_context.py`; generate a
 privacy-safe handoff; then move the finished
-canonical prompt from `prompts/next/` to `prompts/completed/` and promote exactly one planned prompt.
+canonical prompt from `prompts/next/` to `prompts/completed/` and promote exactly one planned prompt
+when a successor exists. After Prompt 5, both `prompts/next/` and `prompts/planned/` remain empty.

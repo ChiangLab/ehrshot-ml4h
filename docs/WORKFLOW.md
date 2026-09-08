@@ -7,7 +7,8 @@ source of truth.
 
 1. Read `AGENTS.md` and every current context document it requires.
 2. Run `.venv/bin/python scripts/check_project_context.py`.
-3. Read only the one prompt under `prompts/next/`.
+3. Read only the one prompt under `prompts/next/`. After all five phases are complete, verify that
+   `prompts/next/` and `prompts/planned/` are empty instead.
 4. Verify that prompt's hard gates against `docs/RESULTS_REGISTRY.md`, Git, privacy-safe aggregates,
    and DGX sentinels. Never infer completion from an absent queue entry or file existence alone.
 
@@ -18,11 +19,12 @@ source of truth.
 2. Update `PROJECT_STATE.md` with source and governed execution state.
 3. Record decisions or deviations in `DECISION_LOG.md` or `PROTOCOL_DEVIATIONS.md`.
 4. Record commits, DGX job IDs, aggregate paths, and gates in `RESULTS_REGISTRY.md`.
-5. Update `NEXT_ACTION.md` to one explicit action and one active prompt.
+5. Update `NEXT_ACTION.md` to one explicit action and one active prompt, or explicitly declare that
+   no active implementation prompt remains after the five-prompt workflow is complete.
 6. Generate the privacy-safe handoff bundle.
 7. After the phase's real jobs and semantic validators pass, move its prompt from `prompts/next/`
-   to `prompts/completed/`, move exactly one successor from `prompts/planned/` to `prompts/next/`,
-   and rerun `scripts/check_project_context.py`.
+   to `prompts/completed/`. Promote exactly one successor from `prompts/planned/` when one exists;
+   after Prompt 5, leave both directories empty and rerun `scripts/check_project_context.py`.
 
 ## Mac and DGX boundary
 

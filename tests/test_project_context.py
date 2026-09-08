@@ -36,3 +36,25 @@ def test_project_context_rejects_duplicate_active_phase_and_model_suggestion(tmp
     assert any("exactly one active prompt" in failure for failure in failures)
     assert any("appears more than once" in failure for failure in failures)
     assert any("retains a model suggestion" in failure for failure in failures)
+
+
+def test_project_context_accepts_five_completed_phases(tmp_path: Path) -> None:
+    for path in REQUIRED_CONTEXT:
+        _write(tmp_path, path)
+    for phase in range(1, 6):
+        _write(tmp_path, Path(f"prompts/completed/{phase:02d}_phase.md"), f"Prompt {phase}\n")
+    _write(tmp_path, Path("docs/NEXT_ACTION.md"), "No active implementation prompt remains.\n")
+
+    assert validate_project_context(tmp_path) == []
+
+
+def test_project_context_rejects_empty_next_before_final_phase(tmp_path: Path) -> None:
+    for path in REQUIRED_CONTEXT:
+        _write(tmp_path, path)
+    for phase in range(1, 5):
+        _write(tmp_path, Path(f"prompts/completed/{phase:02d}_phase.md"), f"Prompt {phase}\n")
+    _write(tmp_path, Path("prompts/planned/05_phase.md"), "Prompt 5\n")
+
+    failures = validate_project_context(tmp_path)
+
+    assert any("exactly one active prompt" in failure for failure in failures)

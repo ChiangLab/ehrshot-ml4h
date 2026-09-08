@@ -1,6 +1,6 @@
 # Project state
 
-Status date: 2026-09-07
+Status date: 2026-09-08
 
 ## Source state
 
@@ -40,24 +40,33 @@ Status date: 2026-09-07
 
 ## Current build state
 
+- The five-prompt implementation workflow is complete. Prompt 5 retained frozen scientific source
+  commit `731545119df7a313883e60967039b5e0ddd2a2f1` and used recovery execution commit
+  `e9f8f5901037ddc8f5a6a5ea42019275fae0fd9e`. Jobs 572/573 froze the manifest and built the
+  deterministic held-out cohort; the original `574_0`-`574_3` failures remain preserved. Recovery
+  preparation jobs `583_0`-`583_3`, embedding jobs `585_0`-`585_3`, fit/report job 586, and
+  publication job 587 all wrote COMPLETE and passed the final semantic review.
+- The held-out report records `M1_PRIMARY_ONE_TIME_HELD_OUT_COMPLETE_NO_DESIGN_CHANGES_PERMITTED`,
+  `test_evaluated_once=true`, `protocol_modified_after_test_access=false`, and no test performance
+  in job logs. Its SHA-256 is
+  `9c8af6cab8d1ec48e168b6ea6c1f045bf6dc4705f6f7ceccc21a8b7fabb8031f`. The publication sentinel
+  SHA-256 is `e0e06c759379e9b9bd08fc78ce21114aef853eb71fe366a8065d3129dfc38c3c`, and the copied handoff
+  SHA-256 is `71a490cdf3f6bfe409a56a01ea5b6e21991c27ab05e1a02c7c1454491711e5db`.
+- Held-out C1 equal-weight macro-AUROC was 0.646 (95% CI 0.618 to 0.672). The co-primary contrast
+  versus latest-window was -0.014 (95% CI -0.032 to 0.003; Holm p=0.224), and the contrast versus
+  three-seed shuffled-time probabilities was 0.002 (95% CI -0.001 to 0.006; Holm p=0.224). These
+  null/negative results are final. M3 remains validation-only and M2 remains incomplete future work.
 - Prompt 4 is closed under the explicit 2026-09-07 scope amendment. M3 reference computation and
   aggregation are complete and semantically valid: jobs 470/471 and report job 570, aggregate
   SHA-256 `7ff518916137317475f8e8a867ea6bcb195cf3c09a27aed67f30b1dc11eb7030`.
   M3 remains validation-only and will not be run on held-out test. M2 did not complete despite
   fail-closed fidelity/runtime attempts; it is future work and no M2 output is eligible for
   selection or held-out evaluation.
-- The sole active stage is Prompt 5. The immutable M1-only manifest was frozen at source commit
-  `731545119df7a313883e60967039b5e0ddd2a2f1`; freeze job 572 and deterministic test-cohort job 573
-  are COMPLETE. The private STARTED/COMPLETE audit therefore records held-out cohort access, but no
-  test embedding, prediction, or performance was produced. Preparation jobs `574_0`-`574_3` failed
-  before serialization because the shared `prepare_instance` guard did not expose the explicit
-  test-only authorization already enforced by the outer held-out iterator. Downstream 575-577 were
-  canceled. Preserve the manifest, cohort, access audit, and all failed sentinels.
-- The pending recovery adds only an explicit default-closed `allow_test` argument to the shared
-  preparation function, enabled solely by the isolated final-submission caller. It also separates
-  frozen scientific-source provenance from the recovery execution commit and repairs the resume
-  script's duplicate manifest-field parsing. It must resume the same manifest without refreezing or
-  rebuilding the cohort.
+- Prompt 5's first preparation graph failed before serialization because the shared
+  `prepare_instance` guard did not expose the outer caller's explicit test-only authorization.
+  Recovery commit `e9f8f59` added the default-closed boundary flag and separated frozen scientific
+  provenance from execution provenance. It resumed the same manifest without refreezing or
+  rebuilding the cohort and is now verified complete.
 
 - Prompt 2's isolated complete three-task engineering pilot is COMPLETE.
 - The pinned Qwen3-Embedding-0.6B artifact is complete on the DGX. Synthetic smoke job 411 loaded

@@ -1389,3 +1389,25 @@ test -s reports/generated/submission/locked_four_task_m1_submission_v1/m1_held_o
 test -s reports/generated/submission/locked_four_task_m1_submission_v1/publication/PUBLICATION_COMPLETE.json
 test -s reports/generated/handoff/prompt5_submission_handoff.json
 ```
+
+## Final Prompt 5 closure
+
+The frozen one-time M1 held-out graph is complete. Scientific source commit
+`731545119df7a313883e60967039b5e0ddd2a2f1` produced jobs 572 and 573. Recovery commit
+`e9f8f5901037ddc8f5a6a5ea42019275fae0fd9e` preserved failed preparation jobs
+`574_0`--`574_3` and completed replacement preparation `583_0`--`583_3`, embedding
+`585_0`--`585_3`, fit/report job 586, and publication job 587. Do not submit another held-out
+evaluation.
+
+The final privacy-safe files copied to the Mac are:
+
+- `reports/generated/submission/locked_four_task_m1_submission_v1/m1_held_out_results.json`
+  (SHA-256 `9c8af6cab8d1ec48e168b6ea6c1f045bf6dc4705f6f7ceccc21a8b7fabb8031f`);
+- `reports/generated/submission/locked_four_task_m1_submission_v1/publication/PUBLICATION_COMPLETE.json`
+  (SHA-256 `e0e06c759379e9b9bd08fc78ce21114aef853eb71fe366a8065d3129dfc38c3c`);
+- `reports/generated/handoff/prompt5_submission_handoff.json`
+  (SHA-256 `71a490cdf3f6bfe409a56a01ea5b6e21991c27ab05e1a02c7c1454491711e5db`).
+
+Before using those values, run a local SHA-256 check and the repository's aggregate validator.
+The held-out split is permanently closed: all remaining work is manuscript, figure, privacy, ethics,
+and submission QA using aggregate artifacts only.

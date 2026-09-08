@@ -28,8 +28,15 @@ def validate_project_context(root: Path) -> list[str]:
         for path in sorted((root / "prompts" / state).glob("*.md"))
     ]
     active = sorted((root / "prompts" / "next").glob("*.md"))
-    if len(active) != 1:
-        failures.append(f"Expected exactly one active prompt; found {len(active)}.")
+    completed = sorted((root / "prompts" / "completed").glob("*.md"))
+    planned = sorted((root / "prompts" / "planned").glob("*.md"))
+    final_workflow_state = len(completed) == 5 and not active and not planned
+    if len(active) != 1 and not final_workflow_state:
+        failures.append(
+            "Expected exactly one active prompt, or five completed prompts with no remaining "
+            f"planned work; found {len(active)} active, {len(completed)} completed, and "
+            f"{len(planned)} planned."
+        )
 
     phases: dict[int, Path] = {}
     for path in prompt_files:
@@ -54,6 +61,10 @@ def validate_project_context(root: Path) -> list[str]:
         relative_active = str(active[0].relative_to(root))
         if relative_active not in next_action.read_text(encoding="utf-8"):
             failures.append(f"NEXT_ACTION.md does not name the active prompt: {relative_active}")
+    if final_workflow_state and next_action.is_file():
+        next_action_text = next_action.read_text(encoding="utf-8")
+        if "No active implementation prompt remains" not in next_action_text:
+            failures.append("NEXT_ACTION.md does not declare the completed five-prompt workflow.")
     return failures
 
 
@@ -66,7 +77,7 @@ def main() -> int:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print("PASS: durable project context has five unique phases and one active next prompt")
+    print("PASS: durable project context has five unique phases and a valid active-or-complete state")
     return 0
 
 

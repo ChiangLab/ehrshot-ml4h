@@ -1,5 +1,8 @@
 Prompt 5 — One-time test evaluation and paper artifacts
 
+Completion note (2026-09-08): the frozen one-time M1 held-out evaluation and publication bundle
+completed successfully. This prompt is retained as the immutable execution specification.
+
 Authorized scope note (2026-09-07): M1 direct serialization is the primary one-time held-out
 approach. M3 is reported as secondary validation-only evidence. M2 is incomplete future work and is
 not a held-out or submission gate. The immutable repository authorization is
