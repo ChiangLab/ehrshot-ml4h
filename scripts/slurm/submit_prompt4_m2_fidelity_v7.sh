@@ -116,7 +116,13 @@ RECOVERY_REPORT_SHA256="$(sha256sum "${RECOVERY_REPORT}" | cut -d' ' -f1)"
 CAPACITY_REPORT_SHA256="$(sha256sum "${CAPACITY_REPORT}" | cut -d' ' -f1)"
 
 LAST_SHARD_INDEX=$((4 * M2_SUMMARY_SHARDS_PER_TASK - 1))
-MAX_ARRAY_SIZE="$(scontrol show config | awk '$1 == "MaxArraySize" {print $3; exit}')"
+# Do not exit awk early here. Under `set -o pipefail`, an early awk exit can
+# close the pipe while scontrol is still writing and turn an otherwise valid
+# submission into exit 141 (SIGPIPE), as happened in launcher job 568.
+MAX_ARRAY_SIZE="$(
+  scontrol show config |
+    awk '$1 == "MaxArraySize" {value = $3} END {if (value != "") print value}'
+)"
 if [[ ! "${MAX_ARRAY_SIZE}" =~ ^[1-9][0-9]*$ || \
       "${LAST_SHARD_INDEX}" -ge "${MAX_ARRAY_SIZE}" ]]; then
   echo "Slurm MaxArraySize=${MAX_ARRAY_SIZE:-unknown} cannot admit indices 0-${LAST_SHARD_INDEX}." >&2

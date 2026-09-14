@@ -1,6 +1,6 @@
 # Project state
 
-Status date: 2026-09-08
+Status date: 2026-09-14
 
 ## Source state
 
@@ -67,6 +67,17 @@ Status date: 2026-09-08
   Recovery commit `e9f8f59` added the default-closed boundary flag and separated frozen scientific
   provenance from execution provenance. It resumed the same manifest without refreezing or
   rebuilding the cohort and is now verified complete.
+
+- Jeff requested resumption of M2 after reviewing the completed M1 study. This is an explicitly
+  validation-only post-completion extension: it retains the fidelity-v7 summarization contract,
+  the on-prem Qwen3.6 endpoint, and the frozen Qwen3-Embedding-0.6B encoder. It cannot access test
+  outcomes, revise M1, or trigger M3 recomputation. No resumed M2 job has yet been launched because
+  the Mac was off the MedNet route during preparation on 2026-09-14.
+- Root cause of historical launcher job 568 is now encoded in source: its Slurm `MaxArraySize`
+  probe allowed `awk` to exit before `scontrol` finished while `pipefail` was active, producing
+  exit 141 before any fidelity-v7 M2 array was submitted. The repaired probe consumes the full
+  stream. A fresh synthetic capacity ladder is still required before the next M2 launch because
+  endpoint capacity is operational evidence and may have changed.
 
 - Prompt 2's isolated complete three-task engineering pilot is COMPLETE.
 - The pinned Qwen3-Embedding-0.6B artifact is complete on the DGX. Synthetic smoke job 411 loaded

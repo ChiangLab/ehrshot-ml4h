@@ -1189,6 +1189,8 @@ def test_prompt4_m2_fidelity_v7_is_capacity_selected_and_finely_sharded() -> Non
     assert "M2_REQUESTS_PER_SHARD=8" in submit
     assert "recommended_global_concurrency" in submit
     assert "MaxArraySize" in submit
+    assert "{print $3; exit}" not in submit
+    assert "END {if (value != \"\") print value}" in submit
     assert '0-${LAST_SHARD_INDEX}%${M2_SUMMARY_PARALLELISM}' in submit
     assert "Jobs 559, 560, and 561 must leave the queue" in submit
     assert "M3_PREP_ARRAY_JOB_ID=470" in submit
