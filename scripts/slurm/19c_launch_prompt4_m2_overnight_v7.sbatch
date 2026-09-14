@@ -15,6 +15,9 @@ PROJECT_ROOT="${TEMPORAL_EHR_PROJECT_ROOT:-/data/shared73/projects/wdelery/tempo
 CONTAINER_IMAGE="/local_storage/enroot/cache/nvidia+pytorch+26.04-py3.sqsh"
 PYTHON="${PROJECT_ROOT}/.venv/bin/python"
 CAPACITY_JOB_ID="${PROMPT4_CAPACITY_JOB_ID:?Capacity job ID is required}"
+M3_REFERENCE_REPORT_JOB_ID=570
+M3_REFERENCE_REPORT="${PROJECT_ROOT}/reports/generated/final/locked_four_task_m2_m3_v1/m3_reference.json"
+M3_REFERENCE_REPORT_SHA256="7ff518916137317475f8e8a867ea6bcb195cf3c09a27aed67f30b1dc11eb7030"
 
 source "${PROJECT_ROOT}/scripts/slurm/final_job_common.sh"
 final_initialize prompt4_m2_overnight_launcher "${SLURM_JOB_ID:?Slurm job ID required}"
@@ -37,17 +40,25 @@ bash scripts/slurm/submit_prompt4_m2_fidelity_v7.sh
 # shellcheck disable=SC1091
 source outputs/private/prompt4_reference_job_ids.env
 
-export PROMPT4_M3_EVIDENCE_SOURCE_GIT_COMMIT="${M3_EVIDENCE_SOURCE_GIT_COMMIT}"
-export PROMPT4_M2_RECOVERY_REPORT="${M2_RECOVERY_REPORT}"
-export PROMPT4_M2_RECOVERY_REPORT_SHA256="${M2_RECOVERY_REPORT_SHA256}"
-M3_REFERENCE_REPORT_JOB_ID="$(
-  sbatch --parsable \
-    --mail-user="${SLURM_MAIL_USER}" \
-    --mail-type=END,FAIL \
-    --export=ALL \
-    scripts/slurm/27a_m3_reference_report.sbatch
-)"
-M3_REFERENCE_REPORT_JOB_ID="${M3_REFERENCE_REPORT_JOB_ID%%;*}"
+test -s "outputs/private/run_status/${M3_REFERENCE_REPORT_JOB_ID}/COMPLETE.json"
+test ! -e "outputs/private/run_status/${M3_REFERENCE_REPORT_JOB_ID}/FAILED.json"
+test -s "${M3_REFERENCE_REPORT}"
+[[ "$(sha256sum "${M3_REFERENCE_REPORT}" | cut -d' ' -f1)" == \
+   "${M3_REFERENCE_REPORT_SHA256}" ]]
+M3_REFERENCE_REPORT="${M3_REFERENCE_REPORT}" "${PYTHON}" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+report = json.loads(Path(os.environ["M3_REFERENCE_REPORT"]).read_text(encoding="utf-8"))
+assert report["status"] == "PASS"
+assert report["protocol_decision"] == (
+    "M3_REFERENCE_VALIDATION_COMPLETE_TEST_REMAINS_LOCKED"
+)
+assert report["test_predictions_or_performance_used"] is False
+assert report["test_results_reported"] is False
+print("PASS: reusing immutable canonical M3 reference aggregate from job 570")
+PY
 
 mkdir -p outputs/private/submissions
 LAUNCH_FILE="outputs/private/submissions/prompt4-overnight-launched-${SLURM_JOB_ID}.env"
@@ -68,5 +79,5 @@ ln -sfn "submissions/$(basename "${LAUNCH_FILE}")" \
 printf 'M2_ARRAY_JOB_ID=%s\n' "${M2_ARRAY_JOB_ID}"
 printf 'M2_EMBED_ARRAY_JOB_ID=%s\n' "${M2_EMBED_ARRAY_JOB_ID}"
 printf 'M2_REVIEW_PREP_JOB_ID=%s\n' "${M2_REVIEW_PREP_JOB_ID}"
-printf 'M3_REFERENCE_REPORT_JOB_ID=%s\n' "${M3_REFERENCE_REPORT_JOB_ID}"
+printf 'REUSED_M3_REFERENCE_REPORT_JOB_ID=%s\n' "${M3_REFERENCE_REPORT_JOB_ID}"
 final_mark_success

@@ -1252,9 +1252,6 @@ def test_prompt4_overnight_launcher_advances_without_test_or_m3_recompute() -> N
     launcher = Path(
         "scripts/slurm/19c_launch_prompt4_m2_overnight_v7.sbatch"
     ).read_text(encoding="utf-8")
-    m3_report = Path("scripts/slurm/27a_m3_reference_report.sbatch").read_text(
-        encoding="utf-8"
-    )
     status = Path("scripts/slurm/prompt4_overnight_status.sh").read_text(
         encoding="utf-8"
     )
@@ -1266,12 +1263,13 @@ def test_prompt4_overnight_launcher_advances_without_test_or_m3_recompute() -> N
     assert 'SOURCE_GIT_COMMIT="${CURRENT_SOURCE_GIT_COMMIT}"' in arm
     assert "squeue -h -j 559,560,561 2>/dev/null | grep -q ." not in arm
     assert "submit_prompt4_m2_fidelity_v7.sh" in launcher
-    assert "27a_m3_reference_report.sbatch" in launcher
+    assert "27a_m3_reference_report.sbatch" not in launcher
+    assert "M3_REFERENCE_REPORT_JOB_ID=570" in launcher
+    assert "7ff518916137317475f8e8a867ea6bcb195cf3c09a27aed67f30b1dc11eb7030" in launcher
     assert "26_m3_task_seed_array.sbatch" not in launcher
-    assert "m3-reference-report" in m3_report
-    assert "m3-task-seed" not in m3_report
+    assert "reusing immutable canonical M3 reference aggregate" in launcher
     assert "prompt4_m2_progress.sh" in status
-    combined = "\n".join((arm, launcher, m3_report, status))
+    combined = "\n".join((arm, launcher, status))
     assert "test performance" not in combined.casefold()
     assert "held-out" not in combined.casefold()
 
