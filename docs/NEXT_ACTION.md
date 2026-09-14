@@ -34,7 +34,8 @@ post-completion extension and must not access held-out outcomes or change any M1
 The prior launcher job 568 failed before M2 submission because an early-exiting `awk` pipeline ran
 under `pipefail` and propagated SIGPIPE exit 141. The submission script now consumes the complete
 Slurm configuration stream before reading `MaxArraySize`; a focused regression test protects this
-boundary.
+boundary. The restart wrapper also keeps the current checkout commit separate from any historical
+armed-job record, so stale job-568 metadata cannot authorize reuse of old capacity evidence.
 
 The authoritative aggregate artifacts are under
 `reports/generated/submission/locked_four_task_m1_submission_v1/`; the privacy-safe handoff is

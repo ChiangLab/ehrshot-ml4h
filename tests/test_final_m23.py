@@ -1191,6 +1191,7 @@ def test_prompt4_m2_fidelity_v7_is_capacity_selected_and_finely_sharded() -> Non
     assert "MaxArraySize" in submit
     assert "{print $3; exit}" not in submit
     assert "END {if (value != \"\") print value}" in submit
+    assert "squeue -h -j 559,560,561 2>/dev/null | grep -q ." not in submit
     assert '0-${LAST_SHARD_INDEX}%${M2_SUMMARY_PARALLELISM}' in submit
     assert "Jobs 559, 560, and 561 must leave the queue" in submit
     assert "M3_PREP_ARRAY_JOB_ID=470" in submit
@@ -1260,6 +1261,10 @@ def test_prompt4_overnight_launcher_advances_without_test_or_m3_recompute() -> N
     assert "afterany:${CAPACITY_JOB_ID}" in arm
     assert "automation is already armed" in arm
     assert "submit_prompt4_m2_capacity_v7.sh" in arm
+    assert 'CURRENT_SOURCE_GIT_COMMIT="$(git rev-parse HEAD)"' in arm
+    assert 'ARMED_SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-}"' in arm
+    assert 'SOURCE_GIT_COMMIT="${CURRENT_SOURCE_GIT_COMMIT}"' in arm
+    assert "squeue -h -j 559,560,561 2>/dev/null | grep -q ." not in arm
     assert "submit_prompt4_m2_fidelity_v7.sh" in launcher
     assert "27a_m3_reference_report.sbatch" in launcher
     assert "26_m3_task_seed_array.sbatch" not in launcher

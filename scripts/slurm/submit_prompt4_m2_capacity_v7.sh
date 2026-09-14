@@ -2,13 +2,17 @@
 
 set -euo pipefail
 
+slurm_jobs_present() {
+  [[ -n "$(squeue -h -j "$1" 2>/dev/null)" ]]
+}
+
 PROJECT_ROOT="${TEMPORAL_EHR_PROJECT_ROOT:-/data/shared73/projects/wdelery/temporal-ehr-ml4h}"
 cd "${PROJECT_ROOT}"
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Prompt 4 M2 capacity submission requires a clean DGX checkout." >&2
   exit 1
 fi
-if squeue -h -j 559,560,561 2>/dev/null | grep -q .; then
+if slurm_jobs_present 559,560,561; then
   echo "Jobs 559, 560, and 561 must leave the queue before the capacity ladder." >&2
   exit 1
 fi

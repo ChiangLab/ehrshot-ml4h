@@ -76,8 +76,9 @@ Status date: 2026-09-14
 - Root cause of historical launcher job 568 is now encoded in source: its Slurm `MaxArraySize`
   probe allowed `awk` to exit before `scontrol` finished while `pipefail` was active, producing
   exit 141 before any fidelity-v7 M2 array was submitted. The repaired probe consumes the full
-  stream. A fresh synthetic capacity ladder is still required before the next M2 launch because
-  endpoint capacity is operational evidence and may have changed.
+  stream, and the restart wrapper no longer lets the historical armed-job environment overwrite
+  the current source commit. A fresh synthetic capacity ladder is still required before the next
+  M2 launch because endpoint capacity is operational evidence and may have changed.
 
 - Prompt 2's isolated complete three-task engineering pilot is COMPLETE.
 - The pinned Qwen3-Embedding-0.6B artifact is complete on the DGX. Synthetic smoke job 411 loaded

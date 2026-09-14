@@ -2,6 +2,10 @@
 
 set -euo pipefail
 
+slurm_jobs_present() {
+  [[ -n "$(squeue -h -j "$1" 2>/dev/null)" ]]
+}
+
 SUBMITTED_JOB_IDS=()
 TEMPORARY_FILE=""
 cleanup_partial_submission() {
@@ -37,7 +41,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 SOURCE_GIT_COMMIT="$(git rev-parse HEAD)"
-if squeue -h -j 559,560,561 2>/dev/null | grep -q .; then
+if slurm_jobs_present 559,560,561; then
   echo "Jobs 559, 560, and 561 must leave the queue before fidelity-v7 recovery." >&2
   exit 1
 fi
