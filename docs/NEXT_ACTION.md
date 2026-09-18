@@ -1,6 +1,6 @@
 # Next action
 
-Status date: 2026-09-14
+Status date: 2026-09-16
 
 All five implementation prompts are complete. No active implementation prompt remains. The
 one-time M1 held-out evaluation and publication bundle completed under frozen scientific source
@@ -18,18 +18,26 @@ The completed M1 result remains frozen. Following Jeff's request to continue the
 summarization experiment, the next computational action is a validation-only M2 resumption. It is a
 post-completion extension and must not access held-out outcomes or change any M1 analysis.
 
-1. On VPN, verify the DGX and on-prem Qwen3.6 endpoint, install the current clean source commit on
-   the DGX, and run `scripts/slurm/arm_prompt4_m2_overnight_v7.sh`.
-2. The wrapper must run a fresh synthetic 8/16/24/32 endpoint-capacity ladder before it submits the
-   768 resumable M2 summary shards. Reuse only fidelity-v6/v7 rows that pass current row-level
-   validation; generate only missing or invalid rows.
-3. After all summary shards complete, allow the four task embedding jobs to use the unchanged
-   frozen Qwen3-Embedding-0.6B encoder. Do not substitute the 8B encoder.
-4. Complete the governed 40-history fidelity review before fitting or interpreting an M2
-   validation classifier. Stop if any summary fidelity or downstream-token gate fails.
-5. Do not run M3 computation again and do not access or rerun held-out evaluation. Any M2 result is
-   validation-only and must be labeled post-completion exploratory evidence relative to the frozen
-   M1 study.
+1. Do not re-arm fidelity-v7 or rerun 768 shards yet. The user reported array 596 stopped with
+   12 COMPLETE, 369 FAILED, and 387 unfinished shards. Preserve 596/597/598 and all caches.
+2. Deploy the scoped singleton-validator repair, then follow `docs/M2_JOB596_RECOVERY.md` to
+   submit only `scripts/slurm/submit_m2_after596_canary.sh`. It evaluates 32 training histories
+   spanning four tasks, two temporal conditions, and four source-length strata. It does not use
+   the frozen 40-history validation review sample, embeddings, labels, or outcomes for selection.
+3. Require the canary COMPLETE sentinel AND semantic/hash verification. A FAIL produces private
+   diagnostic responses and a privacy-safe aggregate; do not bypass it. A PASS is engineering
+   evidence only, not permission to skip manual fidelity review or a guarantee of full-run success.
+4. Review that evidence before authorizing the next full M2 recovery graph and fresh capacity
+   check. Reuse only exact, revalidated summary caches; retain Qwen3-Embedding-0.6B. The planned
+   graph remains summaries -> embeddings and review packet -> manual review -> validation fit.
+5. Do not rerun M3 or access/rerun held-out evaluation. M2 remains a post-completion exploratory
+   validation-only extension; no new M1 selection or test freeze is authorized.
+
+The source formatter supplies `occurrences=1`, but the old output grammar rejected that exact
+field. The repair accepts explicit positive singleton counts while retaining source-matching,
+recurrence retention, numeric/unit association, timing, trend, and token gates. The 333 recurrence
+categories were first-error log classifications, not proof of 333 incorrect clinical counts.
+The canary must establish which failures remain. No extractive/fact-ID redesign is implemented.
 
 The prior launcher job 568 failed before M2 submission because an early-exiting `awk` pipeline ran
 under `pipefail` and propagated SIGPIPE exit 141. The submission script now consumes the complete

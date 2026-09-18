@@ -1,6 +1,24 @@
 # Project state
 
-Status date: 2026-09-14
+Status date: 2026-09-16
+
+## Current M2 recovery (supersedes older restart instructions)
+
+- User-reported array 596 inventory: 12 COMPLETE, 369 FAILED, 387 unfinished; 596/597/598 canceled.
+  These are job counts, not summary-row counts or independent clinical-error counts.
+- First-error log classification before the final cancellation: 333 recurrence, 15 format,
+  11 trend, 4 unsupported-fact, 1 association, 1 endpoint/other (365 failed logs).
+- Confirmed source defect: grouped source emits `occurrences=1`, output grammar rejected it.
+  Repair admits the semantically equivalent explicit singleton, not changed counts; all scientific
+  controls and existing cache identities stay unchanged. Existing valid payloads remain reusable.
+- New shard execution reports are isolated by source commit to avoid overwriting old reports.
+- New DGX-only canary selects 32 training inputs independent of outcome (C1/C3, all four tasks,
+  four length strata), records rejected API responses privately, and checks original evidence hashes.
+  No full scientific graph is automatically launched. No real model/data ran locally.
+- DGX TCP/22 was reachable during implementation, but noninteractive SSH authentication failed.
+  No new job has been submitted by this repair. Follow `docs/M2_JOB596_RECOVERY.md` after deployment.
+- M1 held-out remains closed and unchanged; canonical M3 remains complete. This is a validation-only
+  M2 extension, not a new test-set selection. A fact-ID/extractive redesign has NOT been substituted.
 
 ## Source state
 

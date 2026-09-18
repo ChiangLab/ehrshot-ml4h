@@ -1,5 +1,12 @@
 # Repository operating context
 
+Current M2 recovery override (2026-09-16): array 596 failed extensively and was stopped. Do not
+re-arm the old 768-shard graph. Follow `docs/M2_JOB596_RECOVERY.md`: deploy the explicit-singleton
+validator repair and run the 32-input, training-only engineering canary first. Recurrence log
+categories do not prove incorrect model counts. No scientific interface, prompt, decoding,
+encoder, source compaction, retention threshold, M1 result, or M3 result changed. Full resumption
+remains gated on new DGX evidence; the 40-history human fidelity review is still mandatory.
+
 Before changing scientific or DGX execution code, read these files in order:
 
 1. `docs/CURRENT_SCIENTIFIC_PROTOCOL.md`

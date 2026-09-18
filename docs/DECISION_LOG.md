@@ -1,6 +1,14 @@
 # Decision log
 
-Status date: 2026-09-14. Open scientific deviations are tracked in greater detail in
+2026-09-16 — DEC-034: repair the demonstrable source/output singleton grammar mismatch before
+changing the M2 scientific interface. Accept `occurrences=1` only under all existing source
+matching and retention gates; retain prompt, decoding, encoder and cache identity. Require a
+32-input train-only C1/C3 engineering canary with private rejected responses and hashed original
+job evidence before any full job-596 recovery. The 333 recurrence-classified failed logs are not
+proof of model counting errors. No fact-ID/extractive redesign or held-out reopening is approved.
+Status: local source implementation; DGX verification pending.
+
+Status date: 2026-09-16. Open scientific deviations are tracked in greater detail in
 `PROTOCOL_DEVIATIONS.md`.
 
 | ID | Decision | Status | Evidence or next gate |

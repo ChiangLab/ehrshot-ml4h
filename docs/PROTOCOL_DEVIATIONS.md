@@ -1,6 +1,6 @@
 # Protocol deviations and alignment register
 
-Status date: 2026-09-08
+Status date: 2026-09-16
 
 No entry below is labeled resolved without real-run evidence and, where required, an explicit
 scientific decision. `SOURCE IMPLEMENTED; DGX VERIFICATION PENDING` means the code and synthetic
@@ -8,6 +8,7 @@ tests exist, but the applicable governed job has not yet confirmed the behavior.
 
 | ID | Protocol expectation | Audited Phase 1 behavior | Risk | Proposed resolution | Decision owner | Status | Date |
 |---|---|---|---|---|---|---|---|
+| DEV-042 | Equivalent explicit singleton counts should not fail recurrence fidelity, and large resumptions require representative engineering evidence. | Array 596 has user-reported 12 COMPLETE, 369 FAILED, 387 unfinished shards. Source grouping supplies occurrences=1 but the output grammar rejects it. First-error log categories do not establish the number of semantically wrong summaries. | Repeated full runs waste resources; switching interfaces or relaxing true recurrence fidelity would silently change M2. | Accept positive explicit singleton counts while keeping all source/retention gates; preserve cache identity and old evidence; isolate shard execution reports; run a 32-input train-only engineering canary with private response capture before full resumption. | William Delery | SOURCE IMPLEMENTED; DGX CANARY PENDING | 2026-09-16 |
 | DEV-001 | One reviewed primary task panel is frozen before embedding work. | The governed cohort uses the three-task pilot (`lab_anemia`, `new_acutemi`, `guo_los`), while the final panel is separately locked as `lab_anemia`, `guo_readmission`, `new_hypertension`, and `chexpert`. | Silent panel changes would invalidate cohort and comparison provenance. | Preserve separate PILOT and LOCKED files and require the exact lock plus its pre-pilot provenance at every final gate. | William Delery and Jeff | RESOLVED; PANEL LOCKED BEFORE PILOT RESULTS | 2026-08-21 |
 | DEV-002 | Prediction boundaries follow the final task specification. | Phase 1 applies universal strict `event_time < prediction_time`; aggregate audit observed exact-time events. Formal benchmark boundaries may be task-specific. | Conservative exclusion may differ from benchmark implementation, while inclusion may leak a result or outcome. | Retain strict censoring for the current project unless Jeff approves a documented task-specific exception. | William Delery and Jeff | OPEN DECISION; CONSERVATIVE RULE IMPLEMENTED | 2026-08-19 |
 | DEV-003 | Select one label by sorting eligible prediction times, hashing dataset version, task, split, patient, and seed, then mapping the hash to a sorted-list index. | The existing pilot cohort uses its historical formula; the new final source implements the exact preregistered rule in a separate immutable namespace. | Cohort membership can differ from the preregistered formulation. | Keep the pilot unchanged and require governed semantic validation of the new final cohort before modeling. | William Delery and Jeff | RESOLVED; FOUNDATION JOB 437 VERIFIED | 2026-09-01 |

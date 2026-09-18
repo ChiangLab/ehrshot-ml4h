@@ -160,7 +160,10 @@ def _validate_bounded_summary_grammar(summary: str) -> None:
                     raise NonRetryableSummaryError(
                         "M2 bounded summary contains an invalid text-values field."
                     )
-            if name == "occurrences" and (not value.isdigit() or int(value) < 2):
+            # The source renderer explicitly supplies occurrences=1. An explicit singleton
+            # and an omitted singleton have identical meaning; neither is a recurrence error.
+            # Actual counts still have to match the source below (globally and per window).
+            if name == "occurrences" and (not value.isdigit() or int(value) < 1):
                 raise NonRetryableSummaryError(
                     "M2 bounded summary contains an invalid recurrence count."
                 )
@@ -1107,6 +1110,13 @@ def run_m2_task(
                         )
                 except BaseException as exc:  # preserve every successful row before failing closed
                     failures.append(exc)
+                    print(json.dumps({
+                        "event": "m2_summary_failure_progress",
+                        "task": task,
+                        "failed_new_cache_rows": len(failures) if len(failures) >= 20 else "<20",
+                        "completed_new_cache_rows": completed_new if completed_new >= 20 else "<20",
+                        "summary_shard_index": summary_shard_index,
+                    }, sort_keys=True), flush=True)
         if failures:
             raise RuntimeError(
                 f"{len(failures)} on-premise summary request(s) failed after locked retries."
@@ -1218,6 +1228,10 @@ def run_m2_task(
     else:
         suffix = stage if embed_summaries else f"{stage}_summaries"
     report_path = spec.aggregate_root / "m2" / "tasks" / f"{task}_{suffix}.json"
+    if sharded:
+        # Recovered shards revalidate the same immutable rows, but their execution report
+        # (commit, runtime, reused counts) differs. Never overwrite the original report.
+        report_path = report_path.parent / "summary_runs" / source_git_commit / report_path.name
     report_path.parent.mkdir(parents=True, exist_ok=True)
     if report_path.is_file():
         previous = json.loads(report_path.read_text(encoding="utf-8"))

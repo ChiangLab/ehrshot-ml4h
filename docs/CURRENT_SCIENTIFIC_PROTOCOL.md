@@ -1,5 +1,11 @@
 # Current scientific protocol
 
+M2 recovery note (2026-09-16): admitting the explicit source-consistent singleton
+`occurrences=1` corrects a grammar mismatch; it does not permit wrong recurrence counts or relax
+retention thresholds. Prompt, decoding, same-source evidence, 0.6B encoder, and 40-history manual
+fidelity gate are unchanged. A separate 32-input training-only engineering canary must precede
+further full M2 scheduling. This post-completion M2 extension cannot reopen the M1 held-out split.
+
 Status date: 2026-09-08. This is a concise operational index; the final August 14 protocol and
 `PROTOCOL_DEVIATIONS.md` remain authoritative for detail and unresolved differences.
 

@@ -1,12 +1,13 @@
 # Results registry
 
-Status date: 2026-09-08
+Status date: 2026-09-16
 
 This registry records only privacy-safe phase state, source provenance, job identifiers, aggregate
 paths, and gates. It never records patient-level values or held-out performance.
 
 | Phase | Source commit | DGX jobs | Aggregate evidence | State | Next gate |
 |---|---|---|---|---|---|
+| M2 post-596 engineering recovery | Original 0d17bac; local repair not yet deployed | 596/597/598 stopped (user report); no new job submitted | User report: 12 COMPLETE, 369 FAILED, 387 unfinished shards; new report expected at reports/generated/engineering/m2_after596/canary-JOB.json | SOURCE REPAIRED; DGX VERIFICATION PENDING | 32-input train-only canary plus sentinel/semantic/hash verification; no full-array restart yet |
 | Phase 1 notebook pack | `bc5a746` | Historical execution not used as the final alignment gate | Aggregate foundation/count/serialization reports remain governed by their later review | COMPLETE AS ENGINEERING FOUNDATION | Phase 2 alignment |
 | Phase 2 alignment source | `f9a370c7fe1cb13edd126128cfddc79100852913` | 407 | `reports/generated/phase1_protocol_review/protocol_alignment.json` | ARTIFACTS COMPLETE; JOB FAILED AFTERWARD | Recovery validation |
 | Phase 2 recovery | `e12d475d5ec2bc1f6c02aeda28e1a252ac84d6ea` | 408 | Recovery sentinel and validated alignment aggregate | COMPLETE | Prompt 2 pilot |
