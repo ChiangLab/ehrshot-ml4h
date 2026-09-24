@@ -1,0 +1,28 @@
+version: m2_ordered_structured_v1
+authorized_on: '2026-09-22'
+mode: VALIDATION_ONLY_ENGINEERING
+baseline_config_sha256: 758c67c103b71900432deeabcf26744eecaa60f8d83fe200832e6ea7834dadf8
+instruction_model: nvidia/Qwen3.6-35B-A3B-NVFP4
+api_base: http://10.45.177.17:8000/v1
+embedding_model: Qwen/Qwen3-Embedding-0.6B
+embedding_max_tokens: 8192
+source_history_policy: m1_content_matched_8192
+decoding:
+  temperature: 0.0
+  top_p: 1.0
+  seed: 20260815
+  max_tokens: 16384
+  chat_template_kwargs:
+    enable_thinking: false
+execution:
+  concurrency: 4
+  attempts: 2
+  timeout_seconds: 600
+  deadline_seconds: 12600
+  consecutive_failure_limit: 4
+sampling:
+  development_per_task_condition: 4
+  confirmation_per_task_condition: 4
+  seed: 20260922
+full_run_authorized: false
+test_data_authorized: false

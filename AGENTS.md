@@ -1,11 +1,16 @@
 # Repository operating context
 
-Current M2 recovery override (2026-09-16): array 596 failed extensively and was stopped. Do not
-re-arm the old 768-shard graph. Follow `docs/M2_JOB596_RECOVERY.md`: deploy the explicit-singleton
-validator repair and run the 32-input, training-only engineering canary first. Recurrence log
-categories do not prove incorrect model counts. No scientific interface, prompt, decoding,
-encoder, source compaction, retention threshold, M1 result, or M3 result changed. Full resumption
-remains gated on new DGX evidence; the 40-history human fidelity review is still mandatory.
+Current M2 recovery override (2026-09-22): job 980 failed its 32-input canary (24 PASS).
+William authorized a separately versioned single-pass structured summary preserving ordered
+measurements. Follow `docs/M2_STRUCTURED_V1_RUNBOOK.md`, not historical restart commands below.
+The new path is isolated from all legacy caches and validators. It uses the same M1-retained
+clinical source, on-premise Qwen instruction model, 0.6B encoder, and train/validation boundary.
+This is an explicit source-format/prompt/schema amendment, not merely a scheduling fix.
+Only two gated 32-input training-only engineering jobs are implemented for launch; no full
+scientific graph is armed. Independent confirmation excludes all development/job-980 people.
+Do not re-arm 596 or relabel 980 as COMPLETE. Require real semantic/hash-verified evidence before
+production integration; retain the frozen 40-history manual fidelity gate. M1 and M3 stay frozen;
+the already-completed one-time test is closed and must not be reopened.
 
 Before changing scientific or DGX execution code, read these files in order:
 

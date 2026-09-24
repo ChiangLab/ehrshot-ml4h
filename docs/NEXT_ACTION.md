@@ -1,6 +1,32 @@
 # Next action
 
-Status date: 2026-09-16
+Status date: 2026-09-22
+
+## Active override: ordered structured M2
+
+Job 980 at `0d6ad24` failed (24/32 final PASS). William authorized a separate ordered structured
+summary version, not another unchanged legacy retry. Follow `docs/M2_STRUCTURED_V1_RUNBOOK.md`.
+
+1. Review the scoped source changes and local synthetic/Ruff/shell/privacy/context checks.
+   This implementation turn leaves changes uncommitted and submits no DGX work.
+2. After deployment to a clean DGX checkout, use `submit_m2_structured_gates.sh`. It submits a
+   32-input training development job, then a 32-input patient-disjoint confirmation job dependent
+   on development success. No full-generation, embedding, fit, M3, or test job is submitted.
+3. Monitor with `m2_structured_status.sh`. Require both COMPLETE sentinels, exit 0, report PASS,
+   manifest hashes and independent semantic revalidation. A failure blocks the next gate; retain
+   diagnostics privately. Never infer completion from an empty queue.
+4. Return only the two aggregate JSON reports. Inspect fidelity, compression, token budgets and
+   measured runtime before implementing/authorizing the full version-specific production graph.
+   Old accepted summaries cannot satisfy new-version keys. No performance-based design changes.
+5. Production still requires complete train/validation coverage, row-level checks, downstream
+   0.6B embeddings, frozen 40-history manual fidelity review, and validation-only fitting. The new
+   path has not completed these. Do not use the manual-review sample to tune the prompt.
+
+This explicitly changes source representation/prompt/schema, not clinical tasks, retained clinical
+coverage, instruction model, 0.6B encoder, or M1/M3/test results. No fact-ID/source-rendered fallback
+is substituted. Ordered measurement series are preserved; global cross-code interleaving is not.
+
+## Historical finalization and singleton-recovery instructions (superseded above)
 
 All five implementation prompts are complete. No active implementation prompt remains. The
 one-time M1 held-out evaluation and publication bundle completed under frozen scientific source

@@ -1,8 +1,32 @@
 # Project state
 
-Status date: 2026-09-16
+Status date: 2026-09-22
 
-## Current M2 recovery (supersedes older restart instructions)
+## Current structured M2 amendment (supersedes every older recovery below)
+
+- User-provided DGX evidence: job 980 at `0d6ad24cbc86bc865542c96d65c665a0ab8a673e`
+  FAILED after checking 32 training inputs; 24 passed. Private evidence hashes were verified on
+  DGX. Remaining failures include changed recurrence, unsupported fields/trends, trend retention,
+  and length-limited responses. A completed transport response alone is not fidelity evidence.
+- Local synthetic inspection also demonstrated defects in old trend/text handling and distinct-
+  value grouping (e.g. 1,2,1 becoming 1,2). The historical implementation is preserved, not patched
+  into prior caches. Neither all old failures nor all old accepted rows are thereby adjudicated.
+- William explicitly authorized a new ordered structured-summary version, with the same source,
+  instruction model and 0.6B encoder. New files isolate source transformation, strict JSON/schema
+  checks, context-specific fidelity and DGX engineering evidence under `m2_structured_v1`.
+- The local implementation schedules only two 32-input train-only engineering jobs, development
+  then independent confirmation. Four concurrent requests, two fixed attempts, 10-minute request
+  timeout, failure circuit breaker and a 3.5-hour generation deadline bound each 4-hour job.
+  Every received response is retained privately; JSON artifacts are atomic and no-clobber.
+- No new DGX job was submitted locally. No real data, model, or test performance was run locally.
+  Real endpoint schema support, fidelity and runtime remain unverified for this version.
+- Production worker/cache integration, capacity sizing, full train/validation generation,
+  embeddings, frozen 40-history manual review, and validation fit remain gated work, not completed
+  outputs. Do not launch the old M2 graph to consume this version. See
+  `docs/M2_STRUCTURED_V1_RUNBOOK.md` for the complete deployment and engineering run instructions.
+- Canonical M3 470/471 and report 570 remain complete; M1's one-time test remains closed.
+
+## Historical singleton recovery (superseded by the structured amendment)
 
 - User-reported array 596 inventory: 12 COMPLETE, 369 FAILED, 387 unfinished; 596/597/598 canceled.
   These are job counts, not summary-row counts or independent clinical-error counts.

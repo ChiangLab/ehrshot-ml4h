@@ -1,13 +1,15 @@
 # Results registry
 
-Status date: 2026-09-16
+Status date: 2026-09-22
 
 This registry records only privacy-safe phase state, source provenance, job identifiers, aggregate
 paths, and gates. It never records patient-level values or held-out performance.
 
 | Phase | Source commit | DGX jobs | Aggregate evidence | State | Next gate |
 |---|---|---|---|---|---|
-| M2 post-596 engineering recovery | Original 0d17bac; local repair not yet deployed | 596/597/598 stopped (user report); no new job submitted | User report: 12 COMPLETE, 369 FAILED, 387 unfinished shards; new report expected at reports/generated/engineering/m2_after596/canary-JOB.json | SOURCE REPAIRED; DGX VERIFICATION PENDING | 32-input train-only canary plus sentinel/semantic/hash verification; no full-array restart yet |
+| M2 ordered structured v1 | Local uncommitted implementation based on 0d6ad24 | None submitted | Expected reports/generated/engineering/m2_structured_v1/development-JOB.json and confirmation-JOB.json | LOCAL ENGINEERING IMPLEMENTATION; NO REAL PASS CLAIM | Two 32-input train-only gates, subject-disjoint confirmation, semantic/hash verification; production graph not armed |
+| M2 job-980 canary | 0d6ad24cbc86bc865542c96d65c665a0ab8a673e | 980 FAILED | User-provided hash-verified audit: 32 inputs, 24 final PASS; private manifest SHA-256 b42ed652abbaf911356664589eb52a795a1b2908d12ee78b535a604569eb92c9 | FAILED; PRESERVED | Superseded by new-version engineering gates, not by relabeling or retrying the old full array |
+| M2 post-596 engineering recovery | Original 0d17bac; repair 0d6ad24 | 596/597/598 stopped; canary 980 FAILED | User report: 12 COMPLETE, 369 FAILED, 387 unfinished old shards; canary report at reports/generated/engineering/m2_after596/canary-980.json | FAILED CANARY; EVIDENCE PRESERVED | New-version structured gates supersede old full-array restart |
 | Phase 1 notebook pack | `bc5a746` | Historical execution not used as the final alignment gate | Aggregate foundation/count/serialization reports remain governed by their later review | COMPLETE AS ENGINEERING FOUNDATION | Phase 2 alignment |
 | Phase 2 alignment source | `f9a370c7fe1cb13edd126128cfddc79100852913` | 407 | `reports/generated/phase1_protocol_review/protocol_alignment.json` | ARTIFACTS COMPLETE; JOB FAILED AFTERWARD | Recovery validation |
 | Phase 2 recovery | `e12d475d5ec2bc1f6c02aeda28e1a252ac84d6ea` | 408 | Recovery sentinel and validated alignment aggregate | COMPLETE | Prompt 2 pilot |

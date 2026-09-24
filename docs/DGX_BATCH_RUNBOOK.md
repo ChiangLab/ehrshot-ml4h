@@ -1,9 +1,10 @@
 # DGX batch runbook
 
-Current override (2026-09-16): M2 array 596 was stopped after widespread fidelity failures. Use
-`docs/M2_JOB596_RECOVERY.md` and `scripts/slurm/submit_m2_after596_canary.sh` for the bounded
-train-only singleton-validator check. Do not use historical full-array submission commands below
-as a job-596 recovery. Old sentinels/caches remain immutable; no M1/M3/test rerun is authorized.
+Current override (2026-09-22): job 980 failed after the singleton repair. Use
+`docs/M2_STRUCTURED_V1_RUNBOOK.md` and `scripts/slurm/submit_m2_structured_gates.sh` for the newly
+authorized ordered structured-summary version. This submits ONLY two 32-input training engineering
+jobs with a dependency and no scientific downstream array. Do not use historical full-array or
+canary commands below. Preserve old sentinels/caches; no M1/M3/test rerun is authorized.
 
 ## Operating rules
 

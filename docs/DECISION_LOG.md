@@ -1,12 +1,27 @@
 # Decision log
 
+2026-09-22 — DEC-035: William authorized versioned single-pass structured M2 summaries that
+preserve ordered measurements, retaining the clinical source, Qwen instruction model, 0.6B encoder
+and validation-only boundary. Preserve the failed job-980 evidence and all prior versions. Use a
+new ordered run representation, strict JSON facts, exact retained-series matching, keyed fidelity,
+and a 16,384-token JSON generation ceiling with unchanged 8,192-token encoder cap. This explicitly
+amends representation/prompt/validation accounting; it is not a runtime-only fix or a fact-ID
+extractive substitute. Development and independently held-out engineering samples are training-
+only; confirmation excludes all development and 980 people. Neither performance nor outcomes
+select these samples. Two gated engineering jobs are implemented; production integration follows
+only reviewed real evidence, with the original 40-history manual review still required. No new
+M1/M3/test computation, local real-model execution, commit, push or remote submission is performed.
+Status: local implementation; real DGX development/confirmation pending. DEC-034's job-980 canary
+ran and failed, so its full-resumption gate was not met.
+
 2026-09-16 — DEC-034: repair the demonstrable source/output singleton grammar mismatch before
 changing the M2 scientific interface. Accept `occurrences=1` only under all existing source
 matching and retention gates; retain prompt, decoding, encoder and cache identity. Require a
 32-input train-only C1/C3 engineering canary with private rejected responses and hashed original
 job evidence before any full job-596 recovery. The 333 recurrence-classified failed logs are not
 proof of model counting errors. No fact-ID/extractive redesign or held-out reopening is approved.
-Status: local source implementation; DGX verification pending.
+Status update 2026-09-22: repair ran in job 980, which FAILED (24/32 final PASS). The full
+resumption gate was not met; DEC-035 supersedes the next engineering action.
 
 Status date: 2026-09-16. Open scientific deviations are tracked in greater detail in
 `PROTOCOL_DEVIATIONS.md`.

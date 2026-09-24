@@ -1,10 +1,31 @@
 # Current scientific protocol
 
-M2 recovery note (2026-09-16): admitting the explicit source-consistent singleton
-`occurrences=1` corrects a grammar mismatch; it does not permit wrong recurrence counts or relax
-retention thresholds. Prompt, decoding, same-source evidence, 0.6B encoder, and 40-history manual
-fidelity gate are unchanged. A separate 32-input training-only engineering canary must precede
-further full M2 scheduling. This post-completion M2 extension cannot reopen the M1 held-out split.
+M2 amendment (2026-09-22; DEC-035/DEV-043): after job 980 failed, William authorized
+`m2_ordered_structured_v1`, a new single-pass, LLM-generated structured-summary interface.
+Clinical evidence is still exactly M1's retained source; task definitions, strict pre-T censoring,
+30/90-day windows, final-window correctness, and C1/C3 label-only perturbations do not change.
+The source groups each window by code/source/unit, preserving the ordered value/text sequence
+and exact run counts, including returns to earlier values. Grouping does NOT retain global
+cross-code event interleaving; do not call it globally lossless. No individual retained series
+may be changed, reordered, partially shortened, or moved to another window. Whole-series omission
+is allowed only under the retention floors below. The model emits facts, not IDs; rendering uses
+only validated returned facts and never substitutes a deterministic source summary.
+
+The unchanged numeric fidelity floors (90% concepts, 95% numbers/text/units, 80% recurrence/trends)
+now use window/code/source/unit-specific denominators, not pooled lexical overlap. Recurrence is
+occurrence-weighted; directional-series retention derives endpoint change and monotonicity from
+the full ordered numeric runs. It is not a clinical-trend interpretation. Missing numeric values
+make that trajectory unknown. Exact time-label sequence is mandatory. This clarified accounting,
+JSON schema, prompt, ordered source and rendering are a versioned protocol amendment.
+
+Keep `nvidia/Qwen3.6-35B-A3B-NVFP4`, temperature 0, top-p 1, fixed seed, thinking off, and the
+Qwen3-Embedding-0.6B encoder. A separate 16,384-token JSON generation ceiling does not expand the
+8,192-token downstream embedding cap or the clinical input. No truncation/fallback is permitted.
+Two frozen 32-input training-only engineering samples precede production: development, then
+patient-disjoint confirmation also excluding job-980 people. All inputs must pass. The fixed
+40-history validation manual review remains separate and mandatory; it must not tune this prompt.
+No automatic scientific resumption is implemented until the new engineering evidence is reviewed.
+This post-M1 exploratory extension cannot reopen held-out evaluation or establish Markovianity.
 
 Status date: 2026-09-08. This is a concise operational index; the final August 14 protocol and
 `PROTOCOL_DEVIATIONS.md` remain authoritative for detail and unresolved differences.
