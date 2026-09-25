@@ -1,5 +1,23 @@
 # Current scientific protocol
 
+Active amendment (2026-09-25; DEC-037/DEV-045): strengthen the single-pass structured M2 prompt
+after 986's measured generation-fidelity failure, without relaxing any acceptance criteria or
+automatically repairing responses. Full code/source/unit tuple identity, unchanged ordered runs,
+null/string distinctions, exact counts and source-relative series order receive explicit
+instructions. JSON object keys use canonical serialization for reproducible requests after file
+reload; array order and clinical evidence are unchanged. Two bounded same-contract attempts retain
+the first valid response; neither rejection feedback nor earlier summaries enter later requests.
+The prompt and request change are versioned as `m2_ordered_structured_v2`; old generation caches
+cannot satisfy this identity. Model/decoding/renderer/token cap remain unchanged.
+
+Job 985 establishes render fit for its 32 development responses (maximum 6,953 tokens), not
+general generation reliability. Job 986 failed, with 29/32 accepted. Both old samples are now
+development/regression evidence. Freeze a new 32-input training-only confirmation before any
+v2 generation, excluding all prior engineering people globally across tasks. Regression uses
+all 64 old inputs, not only failures; every input must pass. Automated readiness follows only
+verified regression and confirmation. No full-production or performance claim follows merely
+from these engineering passes; the frozen 40-history manual fidelity gate remains mandatory.
+
 Rendering amendment (2026-09-24; DEC-036/DEV-044): job 982's hash-verified diagnostic found all
 32 latest saved responses pass the factual gates with measured retention 1.0, but v1 rendering
 put two over context (8,248 and 8,265 tokens). Apply `m2_ordered_render_v2` uniformly to returned

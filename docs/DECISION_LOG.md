@@ -1,5 +1,15 @@
 # Decision log
 
+2026-09-25 — DEC-037: William authorized the versioned repair after 986's diagnosed fidelity
+failures. Preserve strict validation; do not deduplicate, reorder, fill, or repair LLM answers.
+Strengthen copying instructions and canonicalize JSON object-key serialization (not arrays),
+version the complete request identity, and isolate outputs. Freeze 32 new training confirmation
+inputs before generation, excluding all prior engineering people; regress all 64 inspected inputs.
+Automate regression -> confirmation -> readiness with afterok plus recursive semantic/hash checks.
+Do not equate readiness with production, manual fidelity review, model fitting or scientific M2
+completion. Production integration remains a separate required step. No old caches/sentinels are
+overwritten, and no held-out/M1/M3 computation is authorized. Real v2 effectiveness is pending.
+
 2026-09-24 — DEC-036: recover job 982 with a versioned reversible downstream renderer. Its
 saved latest responses passed every factual gate in a user-run hash-verified diagnostic; two
 rendered outputs exceeded 8,192 by 56/73 tokens. Reuse the fixed last saved response per input,

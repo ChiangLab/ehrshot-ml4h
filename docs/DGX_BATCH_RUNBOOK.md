@@ -1,5 +1,12 @@
 # DGX batch runbook
 
+Active override (2026-09-25): 985 replay passed, 986 confirmation failed fidelity (29/32 PASS).
+Use `docs/M2_STRUCTURED_V2_AFTER_986.md` and `submit_m2_structured_v2.sh`. The new dependency
+chain is regression (8h allocation) -> fresh confirmation (4h) -> readiness (30m); these are
+limits, not predicted durations. No full array is submitted. All Python stays in the pinned
+container on node dgit00038673. Leave the checkout unchanged while queued/running. A partial
+submission leaves recorded IDs and refuses duplicate invocation at the same commit.
+
 Current override (2026-09-24): use `docs/M2_RENDER_V2_RECOVERY.md` after failed job 982. The
 new launcher is `scripts/slurm/submit_m2_render_recovery.sh` (saved-response replay followed by
 the original frozen confirmation sample). Monitor with `scripts/slurm/m2_render_status.sh`.

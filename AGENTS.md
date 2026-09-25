@@ -1,5 +1,17 @@
 # Repository operating context
 
+Active override (2026-09-25; supersedes historical recovery instructions below): replay 985
+passed semantic verification; confirmation 986 has 29/32 PASS and genuine duplicate/changed/
+reordered-series rejections. Preserve both, including 986 FAILED. Use
+`docs/M2_STRUCTURED_V2_AFTER_986.md`. The authorized v2 prompt repair retains the clinical source,
+schema, decoding, instruction model, 0.6B encoder, compact renderer and strict fidelity gates.
+JSON object keys are serialized canonically; clinical arrays are never sorted. Version all new
+generation keys. Regression covers all 64 previously inspected inputs; a fresh 32-input training
+confirmation excludes all 980/982/986 engineering people and is frozen before new generation.
+The launcher queues regression -> confirmation -> readiness only. A failed gate blocks successors.
+Production integration, full generation, embeddings, frozen manual review and validation fitting
+remain outstanding; readiness is NOT scientific M2 completion. No M1/M3/test rerun is authorized.
+
 Current override (2026-09-24): development 982 at `f9cce3d` checked 32 inputs, with 30 accepted;
 the user-provided hash-verified replay found all 32 latest responses factually valid with full
 measured retention. Two v1 rendered texts were 8,248/8,265 tokens, exceeding 8,192. Confirmation

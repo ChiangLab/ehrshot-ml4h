@@ -1,13 +1,14 @@
 # Results registry
 
-Status date: 2026-09-24
+Status date: 2026-09-25
 
 This registry records only privacy-safe phase state, source provenance, job identifiers, aggregate
 paths, and gates. It never records patient-level values or held-out performance.
 
 | Phase | Source commit | DGX jobs | Aggregate evidence | State | Next gate |
 |---|---|---|---|---|---|
-| M2 rendering recovery v2 | Local repair based on f9cce3d; not deployed | None submitted | Expected reports/generated/engineering/m2_render_v2/replay-JOB.json and confirmation-JOB.json | SOURCE IMPLEMENTED; REAL TOKEN FIT PENDING | Saved-response replay, then frozen independent confirmation, semantic verification and human review before production |
+| M2 generation repair v2 | Local uncommitted implementation | None submitted | Expected reports/generated/engineering/m2_structured_v2/{regression,confirmation,readiness}-JOB.json | SOURCE IMPLEMENTED; REAL GATES PENDING | All 64 regression inputs, 32 fresh confirmation inputs, readiness; production integration and manual fidelity review remain |
+| M2 rendering recovery v2 | 725162f1a900183952d22b705d335dd5255dbb3a | 985 COMPLETE; 986 FAILED | User-run semantic/hash diagnostic: replay all 32 passed (maximum 6,953 tokens); confirmation 29/32 passed, duplicate/changed/reordered series remain | RENDER FIT VERIFIED FOR REPLAY; GENERATION CONFIRMATION FAILED | Preserve evidence; new prompt version and fresh confirmation; no old full-array resubmission |
 | M2 structured development | f9cce3d09196177ab123e5467854f0435773c051 | 982 FAILED; 983 did not start | User-provided hash-verified diagnostic: 30/32 accepted, all latest responses factual retention 1.0, oversized renders 8,248/8,265; private manifest 480effa80c708f4e04e29fdb863cf1f80cc3f49048da232c820f90c27ce120d1 | RENDERING CONTEXT FAILURE; PRESERVED | Render-v2 replay; do not regenerate development or reopen old full arrays |
 | M2 ordered structured v1 | Local uncommitted implementation based on 0d6ad24 | None submitted | Expected reports/generated/engineering/m2_structured_v1/development-JOB.json and confirmation-JOB.json | LOCAL ENGINEERING IMPLEMENTATION; NO REAL PASS CLAIM | Two 32-input train-only gates, subject-disjoint confirmation, semantic/hash verification; production graph not armed |
 | M2 job-980 canary | 0d6ad24cbc86bc865542c96d65c665a0ab8a673e | 980 FAILED | User-provided hash-verified audit: 32 inputs, 24 final PASS; private manifest SHA-256 b42ed652abbaf911356664589eb52a795a1b2908d12ee78b535a604569eb92c9 | FAILED; PRESERVED | Superseded by new-version engineering gates, not by relabeling or retrying the old full array |

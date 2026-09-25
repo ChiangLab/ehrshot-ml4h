@@ -1,6 +1,23 @@
 # Project state
 
-Status date: 2026-09-24
+Status date: 2026-09-25
+
+## Active recovery after confirmation 986 (supersedes older state below)
+
+- User-run DGX diagnostic semantically verified replay 985 and hashed confirmation 986 evidence.
+  Replay passed all 32; maximum compact-render token count 6,953. Confirmation accepted 29/32;
+  rejected outputs include exact duplicate series, changed measurement content/counts/runs, and
+  changed series order. Categories overlap; this is not a measured timeout or VPN failure.
+- Original recovery commit: `725162f1a900183952d22b705d335dd5255dbb3a`. Private 986 manifest:
+  `f0640b4f59ba86362fee5ef1ca44c559ca634632a593b29f592fc205f612b51a`. Keep FAILED unchanged.
+- A separately versioned prompt repair and canonical object-key serialization are implemented
+  locally; validators/model/decoding/source/encoder remain unchanged. Fresh confirmation is frozen
+  before generation and excludes all previously inspected engineering people. Run 64-input
+  regression, then 32-input confirmation, then a dependent read-only readiness report.
+- No real-data or model execution, commit, push, or remote submission was performed during this
+  implementation. A stronger prompt is a testable candidate, not a guaranteed solution.
+- Full production integration and generation, embedding, manual fidelity review and validation
+  fitting remain outstanding. See `docs/M2_STRUCTURED_V2_AFTER_986.md`. Old launchers are obsolete.
 
 ## Active recovery after job 982
 

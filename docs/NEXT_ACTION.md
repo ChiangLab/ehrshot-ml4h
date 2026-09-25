@@ -1,6 +1,18 @@
 # Next action
 
-Status date: 2026-09-24
+Status date: 2026-09-25
+
+## Active override: versioned generation repair after 986
+
+Use `docs/M2_STRUCTURED_V2_AFTER_986.md`, not the older launchers below. Publish the scoped source
+from the Mac with `scripts/git/publish_m2_structured_v2.sh`, pull into a clean idle DGX checkout,
+then submit once with `scripts/slurm/submit_m2_structured_v2.sh`. This is a 64-input regression,
+32-input fresh confirmation and readiness chain, not full-cohort M2. Monitor with
+`scripts/slurm/m2_structured_v2_status.sh`; verify all stages recursively with
+`scripts/slurm/verify_m2_structured_v2.sh`. If any gate fails, preserve evidence and stop.
+Return only the aggregate reports under `reports/generated/engineering/m2_structured_v2/`.
+The next production worker/cache integration requires the verified new engineering evidence;
+embeddings, frozen manual review and validation fitting are not yet run. M1/test stays closed.
 
 ## Active override: recover 982's rendering, then confirm
 
