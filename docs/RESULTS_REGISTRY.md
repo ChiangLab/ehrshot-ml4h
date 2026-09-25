@@ -1,12 +1,14 @@
 # Results registry
 
-Status date: 2026-09-22
+Status date: 2026-09-24
 
 This registry records only privacy-safe phase state, source provenance, job identifiers, aggregate
 paths, and gates. It never records patient-level values or held-out performance.
 
 | Phase | Source commit | DGX jobs | Aggregate evidence | State | Next gate |
 |---|---|---|---|---|---|
+| M2 rendering recovery v2 | Local repair based on f9cce3d; not deployed | None submitted | Expected reports/generated/engineering/m2_render_v2/replay-JOB.json and confirmation-JOB.json | SOURCE IMPLEMENTED; REAL TOKEN FIT PENDING | Saved-response replay, then frozen independent confirmation, semantic verification and human review before production |
+| M2 structured development | f9cce3d09196177ab123e5467854f0435773c051 | 982 FAILED; 983 did not start | User-provided hash-verified diagnostic: 30/32 accepted, all latest responses factual retention 1.0, oversized renders 8,248/8,265; private manifest 480effa80c708f4e04e29fdb863cf1f80cc3f49048da232c820f90c27ce120d1 | RENDERING CONTEXT FAILURE; PRESERVED | Render-v2 replay; do not regenerate development or reopen old full arrays |
 | M2 ordered structured v1 | Local uncommitted implementation based on 0d6ad24 | None submitted | Expected reports/generated/engineering/m2_structured_v1/development-JOB.json and confirmation-JOB.json | LOCAL ENGINEERING IMPLEMENTATION; NO REAL PASS CLAIM | Two 32-input train-only gates, subject-disjoint confirmation, semantic/hash verification; production graph not armed |
 | M2 job-980 canary | 0d6ad24cbc86bc865542c96d65c665a0ab8a673e | 980 FAILED | User-provided hash-verified audit: 32 inputs, 24 final PASS; private manifest SHA-256 b42ed652abbaf911356664589eb52a795a1b2908d12ee78b535a604569eb92c9 | FAILED; PRESERVED | Superseded by new-version engineering gates, not by relabeling or retrying the old full array |
 | M2 post-596 engineering recovery | Original 0d17bac; repair 0d6ad24 | 596/597/598 stopped; canary 980 FAILED | User report: 12 COMPLETE, 369 FAILED, 387 unfinished old shards; canary report at reports/generated/engineering/m2_after596/canary-980.json | FAILED CANARY; EVIDENCE PRESERVED | New-version structured gates supersede old full-array restart |

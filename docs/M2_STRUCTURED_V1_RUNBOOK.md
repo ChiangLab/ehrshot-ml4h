@@ -1,5 +1,10 @@
 # Ordered structured M2: engineering release gates
 
+Superseded execution instructions (2026-09-24): development 982 completed its 32 checks but
+failed on two output-size limits; confirmation 983 did not start. Use
+`docs/M2_RENDER_V2_RECOVERY.md` to reuse saved responses and run the frozen confirmation with
+the new reversible renderer. Do not rerun the deployment/submission commands below for recovery.
+
 Status: local implementation, real DGX verification pending (2026-09-22).
 This supersedes the job-596 singleton recovery instructions. Do not re-arm the old M2 graph.
 

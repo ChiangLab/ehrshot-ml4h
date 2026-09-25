@@ -1,8 +1,27 @@
 # Next action
 
-Status date: 2026-09-22
+Status date: 2026-09-24
 
-## Active override: ordered structured M2
+## Active override: recover 982's rendering, then confirm
+
+Follow `docs/M2_RENDER_V2_RECOVERY.md`. All 32 latest saved development responses passed factual
+checks; the two oversized rendered outputs were 56/73 tokens over 8,192. The compact renderer
+must round-trip exactly and pass the same real tokenizer cap. Preserve every original artifact.
+
+1. Validate and deploy only the scoped rendering-recovery source. No changes are committed/pushed
+   by the implementation assistant.
+2. On a clean, idle DGX, run `scripts/slurm/submit_m2_render_recovery.sh` once. It submits a
+   30-minute replay of saved 982 responses with no generation, then a dependent four-hour job
+   for the independent confirmation sample frozen before job 982.
+3. Monitor `scripts/slurm/m2_render_status.sh`; require COMPLETE plus semantic verification for
+   both jobs. The second job may have no sentinel if the first fails before it starts.
+4. Return only the aggregate reports under `reports/generated/engineering/m2_render_v2/`.
+   Do not repeat the old development job, skip oversized rows, or enlarge the encoder context.
+5. Review those gates before production integration/capacity sizing. Full train/validation M2
+   generation, 0.6B embeddings, frozen 40-history manual review, and validation fitting remain.
+   The one-time M1 test remains closed; M3 470/471/570 is preserved.
+
+## Prior action: ordered structured M2 (superseded above)
 
 Job 980 at `0d6ad24` failed (24/32 final PASS). William authorized a separate ordered structured
 summary version, not another unchanged legacy retry. Follow `docs/M2_STRUCTURED_V1_RUNBOOK.md`.

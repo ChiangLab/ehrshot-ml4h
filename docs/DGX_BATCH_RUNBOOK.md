@@ -1,5 +1,10 @@
 # DGX batch runbook
 
+Current override (2026-09-24): use `docs/M2_RENDER_V2_RECOVERY.md` after failed job 982. The
+new launcher is `scripts/slurm/submit_m2_render_recovery.sh` (saved-response replay followed by
+the original frozen confirmation sample). Monitor with `scripts/slurm/m2_render_status.sh`.
+Do not run the old two-generation launcher or a full array. No new generation occurs in replay.
+
 Current override (2026-09-22): job 980 failed after the singleton repair. Use
 `docs/M2_STRUCTURED_V1_RUNBOOK.md` and `scripts/slurm/submit_m2_structured_gates.sh` for the newly
 authorized ordered structured-summary version. This submits ONLY two 32-input training engineering

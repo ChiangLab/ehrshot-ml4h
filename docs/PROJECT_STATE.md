@@ -1,8 +1,26 @@
 # Project state
 
-Status date: 2026-09-22
+Status date: 2026-09-24
 
-## Current structured M2 amendment (supersedes every older recovery below)
+## Active recovery after job 982
+
+- Deployed generation source: `f9cce3d09196177ab123e5467854f0435773c051`. Development 982
+  checked all 32 inputs in 2,373.78 seconds; 30 were accepted and the job failed on the embedding
+  context gate. Confirmation 983 never started according to the user log.
+- User-run hash-verified diagnostic: every latest response passed the factual checks with
+  minimum retention 1.0. Two rendered texts were 8,248/8,265 tokens, 56/73 over the 8,192 cap.
+  This is a representation-size defect, not evidence of timeout or clinical-fidelity failure.
+- Private 982 manifest SHA-256:
+  `480effa80c708f4e04e29fdb863cf1f80cc3f49048da232c820f90c27ce120d1`.
+- Local compact-renderer recovery reuses those exact saved responses, checks reversible equality,
+  and separately versions embedding inputs. It submits replay then independent confirmation,
+  never automatically a full graph. Original prompt/schema/model/decoding stay pinned.
+- Real render-v2 replay/confirmation remains pending. The 8,192 cap is unchanged; all rows must
+  fit. New real data/models have not run locally; this recovery is uncommitted until deployed.
+- See `docs/M2_RENDER_V2_RECOVERY.md`. Existing generation caches/sentinels and M1/M3 results
+  remain intact. Production embedding/fit and the frozen human review remain outstanding.
+
+## Structured M2 amendment (generation retained; rendering superseded above)
 
 - User-provided DGX evidence: job 980 at `0d6ad24cbc86bc865542c96d65c665a0ab8a673e`
   FAILED after checking 32 training inputs; 24 passed. Private evidence hashes were verified on

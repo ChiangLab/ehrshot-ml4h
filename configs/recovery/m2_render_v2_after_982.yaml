@@ -1,0 +1,10 @@
+version: m2_ordered_render_v2
+source_job_id: '982'
+unused_confirmation_job_id: '983'
+source_commit: f9cce3d09196177ab123e5467854f0435773c051
+source_private_manifest_sha256: 480effa80c708f4e04e29fdb863cf1f80cc3f49048da232c820f90c27ce120d1
+generation_module_sha256: a5754c13cf081240bffedcb89af4ea561211776e9a2202281ccf268635216269
+generation_config_sha256: 5e09a39b802f865b9aa5ed160bb4b3032301ed421bafa07b8dac3d9b8dd4d1d5
+selection: last_saved_response_per_development_input
+full_run_authorized: false
+test_data_authorized: false

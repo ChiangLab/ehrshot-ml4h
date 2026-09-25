@@ -1,5 +1,17 @@
 # Current scientific protocol
 
+Rendering amendment (2026-09-24; DEC-036/DEV-044): job 982's hash-verified diagnostic found all
+32 latest saved responses pass the factual gates with measured retention 1.0, but v1 rendering
+put two over context (8,248 and 8,265 tokens). Apply `m2_ordered_render_v2` uniformly to returned
+structured documents, with a reversible field legend/compact syntax and a round-trip equality
+check. Keep the generation contract pinned. This changes the downstream textual representation
+and its embedding cache identity; it is information-preserving, not an assertion that embeddings
+will be identical. Count the complete new text including legend under the existing 8,192 cap.
+First replay the saved development responses without generation, then use the confirmation
+patients already frozen before 982. Full production and the 40-history manual review remain
+pending. Full factual retention in this engineering sample does not demonstrate abstraction,
+clinical utility, or a Markov property.
+
 M2 amendment (2026-09-22; DEC-035/DEV-043): after job 980 failed, William authorized
 `m2_ordered_structured_v1`, a new single-pass, LLM-generated structured-summary interface.
 Clinical evidence is still exactly M1's retained source; task definitions, strict pre-T censoring,

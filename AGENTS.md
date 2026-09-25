@@ -1,5 +1,16 @@
 # Repository operating context
 
+Current override (2026-09-24): development 982 at `f9cce3d` checked 32 inputs, with 30 accepted;
+the user-provided hash-verified replay found all 32 latest responses factually valid with full
+measured retention. Two v1 rendered texts were 8,248/8,265 tokens, exceeding 8,192. Confirmation
+983 did not start. Follow `docs/M2_RENDER_V2_RECOVERY.md`: replay saved 982 responses with the
+reversible compact renderer, then run the original frozen independent confirmation sample.
+Generation prompt/schema/model/source/decoding remain pinned to f9cce3d; embedding text and its
+cache key are versioned separately. No facts, counts, order, windows, or retention floors are
+changed. The same 0.6B tokenizer enforces 8,192 including the legend. Preserve 982 FAILED and all
+earlier evidence. Real render-v2 token fit remains pending. Do not resubmit the old development
+launcher or any full M2 array. No M1/M3/test rerun is authorized.
+
 Current M2 recovery override (2026-09-22): job 980 failed its 32-input canary (24 PASS).
 William authorized a separately versioned single-pass structured summary preserving ordered
 measurements. Follow `docs/M2_STRUCTURED_V1_RUNBOOK.md`, not historical restart commands below.

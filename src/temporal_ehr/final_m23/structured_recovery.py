@@ -177,7 +177,7 @@ def response_document(response: dict) -> dict:
 
 
 def assess(item: dict, config: dict, thresholds: dict, counter: Any, directory: Path,
-           identity: str, client: Any = None) -> dict:
+           identity: str, client: Any = None, *, validator: Any = validate, renderer: Any = render) -> dict:
     directory.mkdir(parents=True, exist_ok=False)
     write_once(directory / "source.json", item)
     client = client or PrivateClient(config)
@@ -192,8 +192,8 @@ def assess(item: dict, config: dict, thresholds: dict, counter: Any, directory: 
             if digest in response_hashes:
                 raise SummaryContractError("identical_rejected_response")
             response_hashes.add(digest)
-            validation = validate(document, item["source"], thresholds=thresholds, token_counter=counter)
-            result = {"status": "PASS", "document": document, "summary": render(document),
+            validation = validator(document, item["source"], thresholds=thresholds, token_counter=counter)
+            result = {"status": "PASS", "document": document, "summary": renderer(document),
                       "validation": validation, "attempts": attempt + 1, "errors": errors,
                       "generation_key": generation_identity(item["source"], item["condition"], config, identity),
                       "seconds": time.monotonic() - started}

@@ -1,5 +1,16 @@
 # Decision log
 
+2026-09-24 — DEC-036: recover job 982 with a versioned reversible downstream renderer. Its
+saved latest responses passed every factual gate in a user-run hash-verified diagnostic; two
+rendered outputs exceeded 8,192 by 56/73 tokens. Reuse the fixed last saved response per input,
+retain generation source/prompt/schema/decoding/model identity, preserve 982 FAILED, and record
+original generation and recovery commits separately. Short field names with an explicit legend
+and canonical escaping preserve every returned fact; decoding must recover the identical JSON.
+Token-check the entire new text, and version embedding keys. Replay is followed by the originally
+frozen independent confirmation, never a newly selected easier sample. Real fit remains pending;
+no guarantee is inferred from character savings or local synthetic tests. No full M2, M1/M3 or
+test computation is submitted by this implementation.
+
 2026-09-22 — DEC-035: William authorized versioned single-pass structured M2 summaries that
 preserve ordered measurements, retaining the clinical source, Qwen instruction model, 0.6B encoder
 and validation-only boundary. Preserve the failed job-980 evidence and all prior versions. Use a
