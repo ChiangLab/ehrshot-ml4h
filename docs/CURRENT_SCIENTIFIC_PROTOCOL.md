@@ -1,5 +1,15 @@
 # Current scientific protocol
 
+Production integration after verified readiness 990 (2026-09-25): jobs 988/989 accepted all 64/32
+engineering inputs with unchanged fidelity gates. Proceed to the isolated structured-v2 reference
+namespace without changing generation or encoder contracts. C1 covers all existing train/validation
+rows; C3 covers only the original manual-review sample at this stage. The original 40-history
+sample remains human-gated; a failed item cannot be omitted or automatically approved. Short
+16-input chunks, four total requests and response-level resume are execution changes only. New
+M2 reference fitting is exploratory validation-only; no new approach selection or held-out access.
+Further sensitivity requires a prospective post-completion extension, not the historical test
+launcher. See `docs/M2_STRUCTURED_V2_PRODUCTION.md`.
+
 Active amendment (2026-09-25; DEC-037/DEV-045): strengthen the single-pass structured M2 prompt
 after 986's measured generation-fidelity failure, without relaxing any acceptance criteria or
 automatically repairing responses. Full code/source/unit tuple identity, unchanged ordered runs,

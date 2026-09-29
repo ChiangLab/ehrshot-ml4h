@@ -1,5 +1,14 @@
 # Results registry
 
+## Structured-v2 engineering and next reference run (2026-09-25)
+
+User-provided recursive verifier passed 988/989/990. Locally copied engineering reports record
+64/64 regression and 32/32 confirmation PASS at commit `6c80719266485c861fd8aa13f931eebcf5bfc8f8`;
+all measured retention minima 1.0, maximum compact embedding input 7,050 tokens. Readiness is
+not M2 scientific completion. These results do not measure AUROC or support new clinical claims.
+The new `m2_structured_v2_reference_v1` generation/embedding/manual-review/fit namespace is
+implemented locally but has no real-run result yet. M1/M3 and the one-time test are unchanged.
+
 Status date: 2026-09-25
 
 This registry records only privacy-safe phase state, source provenance, job identifiers, aggregate

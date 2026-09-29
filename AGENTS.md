@@ -1,5 +1,20 @@
 # Repository operating context
 
+Active override after verified jobs 988/989/990 (2026-09-29): structured-v2 engineering PASSED
+(64 regression and 32 fresh confirmation inputs). Use `docs/M2_STRUCTURED_V2_PRODUCTION.md`.
+The separate reference production implementation is locally testable; real production remains
+pending. Preserve the engineering commit `6c80719266485c861fd8aa13f931eebcf5bfc8f8`, all prior
+failures and scientific identities. Freeze worklists, reuse only revalidated exact-v2 generations,
+run bounded chunks, gate embeddings on complete coverage, and require the frozen 40-history
+human review before validation fitting. Do not call reference completion the full sensitivity
+matrix. Do not invoke old selection/freeze/test launchers. M1/M3 and test remain closed.
+
+The optional governed project explorer in `docs/PROJECT_EXPLORER.md` is a review interface, not a
+new experiment. It may index only train/validation cohort rows and pre-T source events, M1-M3
+development artifacts, and non-test sentinels. It must bind to DGX localhost and remain under
+`outputs/private`; the one-time held-out artifacts remain outside the catalog. The protocol defines
+no M4. Full embedding arrays remain immutable and are indexed rather than copied into DuckDB.
+
 Active override (2026-09-25; supersedes historical recovery instructions below): replay 985
 passed semantic verification; confirmation 986 has 29/32 PASS and genuine duplicate/changed/
 reordered-series rejections. Preserve both, including 986 FAILED. Use

@@ -2,6 +2,12 @@
 
 Status date: 2026-09-25
 
+Update after engineering 988/989/990: DEV-045's versioned regression/confirmation gates now PASS
+at `6c80719266485c861fd8aa13f931eebcf5bfc8f8` (64/64 and 32/32; max 7,050 tokens; all measured
+minimum retention 1.0). DEV-044's compact render gate likewise passed these samples. This resolves
+those bounded engineering gates, not full-population M2 fidelity, manual review, or performance.
+Production and its human gate remain pending under DEC-038 and the new production runbook.
+
 No entry below is labeled resolved without real-run evidence and, where required, an explicit
 scientific decision. `SOURCE IMPLEMENTED; DGX VERIFICATION PENDING` means the code and synthetic
 tests exist, but the applicable governed job has not yet confirmed the behavior.

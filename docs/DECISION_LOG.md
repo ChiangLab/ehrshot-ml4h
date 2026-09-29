@@ -1,5 +1,19 @@
 # Decision log
 
+- 2026-09-29: Use a private DuckDB index plus localhost browser explorer for presentation review.
+  The original event parquet and full embedding arrays remain immutable sources; the index covers
+  only train/validation selected patients and strictly pre-T events. The held-out submission is
+  excluded, arbitrary SQL/download is unavailable, and no M4 is inferred because none is defined.
+
+2026-09-25 — DEC-038: after verified structured-v2 engineering 988/989/990 and William's request
+to proceed, implement a separate reference production path. Keep source/prompt/model/decoding/
+renderer/fidelity fixed; use at most 16 unique inputs per shard and four total requests. Preserve
+raw responses and a lifetime two-attempt budget; reuse admitted rows after semantic/hash checks;
+halt on rejected inputs rather than dropping patients. The frozen manual fidelity review gates
+validation logistic regression. Reference completion does not authorize the old approach-selection
+or one-time test chain; subsequent sensitivity must be explicitly validation-only and prospectively
+documented. No M1/M3/test rerun or encoder replacement. Status: local implementation, DGX pending.
+
 2026-09-25 — DEC-037: William authorized the versioned repair after 986's diagnosed fidelity
 failures. Preserve strict validation; do not deduplicate, reorder, fill, or repair LLM answers.
 Strengthen copying instructions and canonicalize JSON object-key serialization (not arrays),

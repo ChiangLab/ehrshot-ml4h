@@ -1,5 +1,17 @@
 # DGX batch runbook
 
+For the optional governed browser-based artifact viewer, use `docs/PROJECT_EXPLORER.md`. It runs as
+a 12-hour localhost-only Slurm service and is reached through an SSH tunnel; it does not replace
+scientific sentinels or semantic validators.
+
+Current override after 988/989/990 PASS (2026-09-25): use
+`docs/M2_STRUCTURED_V2_PRODUCTION.md` and `submit_m2_structured_production.sh start` after source
+deployment. Engineering need not rerun. The separate reference graph uses <=16 inputs per chunk,
+two active chunks/two requests each, then coverage sealing/review packet and offline embeddings.
+Human review precedes the explicit `finalize` submission. `verify_m2_production.sh` validates
+completion and writes an aggregate handoff. Old M2 launchers and selection/test commands below
+are historical, not instructions for this extension. Do not change the checkout while jobs run.
+
 Active override (2026-09-25): 985 replay passed, 986 confirmation failed fidelity (29/32 PASS).
 Use `docs/M2_STRUCTURED_V2_AFTER_986.md` and `submit_m2_structured_v2.sh`. The new dependency
 chain is regression (8h allocation) -> fresh confirmation (4h) -> readiness (30m); these are

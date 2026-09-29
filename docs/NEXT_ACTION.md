@@ -1,6 +1,26 @@
 # Next action
 
-Status date: 2026-09-25
+Status date: 2026-09-29
+
+## Current next action: structured-v2 reference production
+
+Jobs 988/989/990 passed; do NOT resubmit engineering. Follow
+`docs/M2_STRUCTURED_V2_PRODUCTION.md`. On the Mac, run
+`bash scripts/git/publish_m2_structured_production.sh`; on a clean idle DGX after pulling that
+commit, run `bash scripts/slurm/submit_m2_structured_production.sh start`. It sets required paths,
+revalidates engineering, freezes source/worklists, and queues generation -> coverage/review packet
+-> embeddings. Monitor `scripts/slurm/m2_production_status.sh` from the repository.
+
+After coverage, review the 40 histories privately with `python3 scripts/review_m2_structured_packet.py`.
+After all embeddings and review, run the same launcher with `finalize`, then
+`bash scripts/slurm/verify_m2_production.sh`. Copy reviewed aggregate reports/handoff only.
+An interrupted infrastructure job may use `resume` after the queue is empty; a fidelity HALT
+requires investigation, never deletion or bypass. No scientific production success is claimed yet.
+Further M2 sensitivity and manuscript integration follow reference review; M1/M3/test stay closed.
+
+For governed presentation review, deploy the optional localhost-only browser interface after the
+same commit is on the DGX: `docs/PROJECT_EXPLORER.md`. It builds a private train/validation DuckDB
+index and never authorizes test access. Rebuild it after M2 advances to refresh M2 views.
 
 ## Active override: versioned generation repair after 986
 

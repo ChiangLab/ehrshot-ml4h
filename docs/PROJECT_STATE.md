@@ -1,6 +1,27 @@
 # Project state
 
-Status date: 2026-09-25
+Status date: 2026-09-29
+
+## Current: engineering passed; reference production integration
+
+- User-run DGX verifier recursively passed jobs 988 (64/64 regression), 989 (32/32 fresh training
+  confirmation), and 990 (readiness). Copied aggregates were inspected locally. Source commit:
+  `6c80719266485c861fd8aa13f931eebcf5bfc8f8`; plan hash:
+  `c508d24be784462dda204a0cde8b91d3606dac4a6c5db5c65f01d6c84ce676bd`.
+- Maximum accepted token lengths were 6,953/7,050; minimum measured retention was 1.0 in all
+  categories. Generation runtimes were 4,279/2,043 seconds. This does not establish full-run
+  reliability or clinical predictive benefit. The queue was empty in the provided output.
+- New isolated reference production code provides source freeze, 16-input resumable chunks,
+  complete-coverage sealing, 0.6B embeddings, the frozen human review and validation-only fitting.
+  It is NOT a new held-out study or the entire M2 sensitivity matrix. Real production is pending.
+- No real data/models, remote submissions, commits or pushes were performed by the implementation
+  assistant. Existing manuscript/deliverable edits remain untouched. Deploy using the new runbook.
+- A private project-explorer implementation now provides a DuckDB catalog plus localhost web UI for
+  the original train/validation cohort's strictly pre-T EHRSHOT events, serialized M1 inputs,
+  structured-v2 M2 outputs as they become available, every M1-M3 embedding row map, development
+  metrics and non-test sentinels. Full vectors remain indexed immutable arrays; the held-out
+  submission is excluded. The protocol has no M4. Real DGX build/serving remains pending.
+
 
 ## Active recovery after confirmation 986 (supersedes older state below)
 
