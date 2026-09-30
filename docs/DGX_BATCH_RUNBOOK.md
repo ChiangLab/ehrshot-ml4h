@@ -4,7 +4,15 @@ For the optional governed browser-based artifact viewer, use `docs/PROJECT_EXPLO
 a 12-hour localhost-only Slurm service and is reached through an SSH tunnel; it does not replace
 scientific sentinels or semantic validators.
 
-Current override after 988/989/990 PASS (2026-09-25): use
+Current override after array 993 FAILED (2026-09-30): use
+`docs/M2_SELECTION_V3_RECOVERY.md` and `submit_m2_selection_recovery.sh start`. Do not resume the
+structured-v2 production graph or remove its HALT. The new dependency chain is canary -> disjoint
+confirmation -> readiness -> bounded production -> coverage/review -> embeddings. Manual review
+precedes an explicit `finalize`; `verify_m2_selection_v3.sh` is the final read-only verifier.
+All package-dependent work stays in the pinned container on `dgit00038673`. Leave the checkout
+unchanged while queued/running. M1/M3/test remain closed.
+
+Superseded override after 988/989/990 PASS (2026-09-25): use
 `docs/M2_STRUCTURED_V2_PRODUCTION.md` and `submit_m2_structured_production.sh start` after source
 deployment. Engineering need not rerun. The separate reference graph uses <=16 inputs per chunk,
 two active chunks/two requests each, then coverage sealing/review packet and offline embeddings.

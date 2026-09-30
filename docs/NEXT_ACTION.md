@@ -1,8 +1,27 @@
 # Next action
 
-Status date: 2026-09-29
+Status date: 2026-09-30
 
-## Current next action: structured-v2 reference production
+## Current next action: selection-v3 recovery after array 993
+
+Do not resume `m2_structured_v2_reference_v1` or delete its HALT. Job 993 stopped correctly after
+two generated summaries failed structural fidelity; an identical rejected response at temperature
+zero makes another unchanged retry unsound. Follow `docs/M2_SELECTION_V3_RECOVERY.md`.
+
+On the Mac, publish only the named recovery with
+`bash scripts/git/publish_m2_selection_v3.sh`. On a clean, idle DGX, pull that commit and run
+`bash scripts/slurm/submit_m2_selection_recovery.sh start`. The graph is canary -> independent
+confirmation -> read-only readiness -> resumable production -> coverage/review packet -> four
+0.6B embedding jobs. Monitor with `scripts/slurm/m2_selection_v3_status.sh`. The model returns
+only ordered source-series indices; code materializes exact clinical facts and reapplies all
+retention/time/token gates. Old caches cannot satisfy the new keys.
+
+After coverage, personally complete the governed 40-history review with
+`scripts/review_m2_selection_v3_packet.py`. Only after review and embeddings pass, run the
+launcher with `finalize`, then `scripts/slurm/verify_m2_selection_v3.sh`. A new HALT is a hard
+stop, not a file to remove. M1, M3 and the one-time held-out test remain closed.
+
+## Superseded next action: structured-v2 reference production
 
 Jobs 988/989/990 passed; do NOT resubmit engineering. Follow
 `docs/M2_STRUCTURED_V2_PRODUCTION.md`. On the Mac, run

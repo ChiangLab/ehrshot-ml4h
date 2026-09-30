@@ -1,5 +1,15 @@
 # Decision log
 
+2026-09-30 — DEC-039: after production array 993 failed on two generated structured-copy outputs,
+replace the output contract—not the clinical experiment—with versioned ordered source-series
+selection. Qwen may emit indices only; code materializes facts exactly from the source and retains
+all existing fidelity/time/token checks. Preserve every job-993 artifact and prevent its cache from
+satisfying new keys. Gate production on a canary containing the old rejected inputs, an independent
+training confirmation and recursive readiness verification. Keep bounded concurrency, the 0.6B
+encoder, frozen manual review and validation-only fit. A new rejection halts the graph. This does
+not authorize M1/M3/test reruns, the full M2 sensitivity matrix or a Markovianity claim. Status:
+source implemented locally; real gates and production pending.
+
 - 2026-09-29: Use a private DuckDB index plus localhost browser explorer for presentation review.
   The original event parquet and full embedding arrays remain immutable sources; the index covers
   only train/validation selected patients and strictly pre-T events. The held-out submission is

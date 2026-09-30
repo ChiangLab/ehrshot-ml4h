@@ -1,6 +1,19 @@
 # Current scientific protocol
 
-Production integration after verified readiness 990 (2026-09-25): jobs 988/989 accepted all 64/32
+Selection-v3 recovery amendment (2026-09-30): structured-v2 production array 993 failed after two
+genuine output-fidelity rejections, including one identical deterministic retry. Preserve that
+evidence; do not rerun or relax it. The instruction model now emits ordered source-series indices
+only. Deterministic code copies the selected facts from the immutable source, so the model cannot
+alter codes, values, units, counts, time labels or series order. Whole-series omission remains
+subject to the same numeric retention thresholds, time-label contract and 8,192-token cap.
+Clinical source, Qwen instruction model, temperature/top-p/seed/thinking settings, 0.6B encoder,
+four tasks and train/validation boundary are unchanged. A canary containing the two old failures,
+an independent confirmation set and recursive readiness verification must pass before production.
+Complete coverage and the frozen 40-history manual review remain mandatory before validation fit.
+No old cache can satisfy the new version; M1/M3/test remain closed. See DEC-039 and
+`docs/M2_SELECTION_V3_RECOVERY.md`.
+
+Superseded production integration after verified readiness 990 (2026-09-25): jobs 988/989 accepted all 64/32
 engineering inputs with unchanged fidelity gates. Proceed to the isolated structured-v2 reference
 namespace without changing generation or encoder contracts. C1 covers all existing train/validation
 rows; C3 covers only the original manual-review sample at this stage. The original 40-history

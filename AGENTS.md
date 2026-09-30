@@ -1,13 +1,16 @@
 # Repository operating context
 
-Active override after verified jobs 988/989/990 (2026-09-29): structured-v2 engineering PASSED
-(64 regression and 32 fresh confirmation inputs). Use `docs/M2_STRUCTURED_V2_PRODUCTION.md`.
-The separate reference production implementation is locally testable; real production remains
-pending. Preserve the engineering commit `6c80719266485c861fd8aa13f931eebcf5bfc8f8`, all prior
-failures and scientific identities. Freeze worklists, reuse only revalidated exact-v2 generations,
-run bounded chunks, gate embeddings on complete coverage, and require the frozen 40-history
-human review before validation fitting. Do not call reference completion the full sensitivity
-matrix. Do not invoke old selection/freeze/test launchers. M1/M3 and test remain closed.
+Active override after failed production array 993 (2026-09-30): use
+`docs/M2_SELECTION_V3_RECOVERY.md`, not the structured-v2 production launcher. Job 993 failed on
+two genuine structured-copy rejections, including an identical temperature-zero retry; the other
+array failures are circuit-breaker fallout. Preserve all 553 FAILED sentinels, HALT, requests,
+responses and accepted rows. The versioned recovery makes Qwen select ordered source-series
+indices and deterministically materializes exact facts from the immutable source. It retains the
+same source, on-premise instruction model, decoding, retention/token gates, 0.6B encoder,
+train/validation boundary and 40-history manual review. Require canary, disjoint confirmation,
+readiness, complete production coverage, manual review, embeddings, fit and final semantic
+verification. Do not reuse old caches, bypass a new HALT, call reference completion the full
+sensitivity matrix, rerun M1/M3, or reopen held-out test.
 
 The optional governed project explorer in `docs/PROJECT_EXPLORER.md` is a review interface, not a
 new experiment. It may index only train/validation cohort rows and pre-T source events, M1-M3

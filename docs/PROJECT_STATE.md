@@ -1,8 +1,27 @@
 # Project state
 
-Status date: 2026-09-29
+Status date: 2026-09-30
 
-## Current: engineering passed; reference production integration
+## Current: array 993 failed; selection-v3 recovery implemented locally
+
+- User-provided DGX evidence shows array 993 is no longer running and all 553 tasks retain FAILED
+  sentinels at source commit `6b1286b6c5b0f1928b1c5ff7a4b02453c26cc847`. Root `993_0`
+  generated three accepted inputs and one rejection before the global circuit breaker propagated.
+  Across preserved evidence, 58 inputs were sealed and two assessments failed with duplicate or
+  changed/reordered series; one rejected response repeated identically. This is a semantic
+  generation failure, not evidence of a Slurm timeout.
+- `m2_selection_v3_reference_v1` is an isolated recovery implementation. Qwen returns only ordered
+  source-series positions; deterministic code materializes exact source facts and enforces the
+  existing retention, time-label and 8,192-token gates. It keeps the same M1-retained source,
+  Qwen instruction endpoint/decoding, 0.6B encoder, four tasks and train/validation scope.
+- The new graph has a prior-failure-bound canary, disjoint training confirmation, recursive
+  readiness verifier, bounded resumable production, full-coverage seal, frozen 40-history manual
+  review, four embeddings, validation-only logistic fit and read-only final verification. Old
+  caches/sentinels cannot authorize it. Real DGX execution has not started.
+- No M1, M3, or held-out computation is authorized. Reference completion will not constitute the
+  full M2 sensitivity matrix or evidence that EHRs are Markovian.
+
+## Superseded: engineering passed; structured-v2 reference production
 
 - User-run DGX verifier recursively passed jobs 988 (64/64 regression), 989 (32/32 fresh training
   confirmation), and 990 (readiness). Copied aggregates were inspected locally. Source commit:

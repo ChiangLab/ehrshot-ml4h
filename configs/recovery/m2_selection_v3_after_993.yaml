@@ -1,0 +1,39 @@
+version: m2_selection_v3_reference_v1
+authorized_on: 2026-09-30
+scope: validation_only_reference
+source_failure:
+  array_job_id: 993
+  source_git_commit: 6b1286b6c5b0f1928b1c5ff7a4b02453c26cc847
+  plan_hash: 41613a8075e572fadc1ae9510bf953545752699601b26a2393878fbcbe5520c5
+  array_tasks: 553
+  root_failed_task: 993_0
+  reason: rejected_input
+recovery:
+  instruction_model: nvidia/Qwen3.6-35B-A3B-NVFP4
+  source_history: unchanged_m1_content_matched_train_validation
+  generation_contract: ordered_source_series_indices_only
+  clinical_materialization: deterministic_exact_source_positions
+  temperature: 0.0
+  maximum_attempts_per_key: 2
+  production_shard_size: 16
+  active_generation_shards: 2
+  requests_per_shard: 2
+  legacy_cache_reuse: false
+  test_data_used: false
+gates:
+  canary:
+    histories_per_task: 8
+    includes_all_job_993_rejected_inputs: true
+  confirmation:
+    histories_per_task: 8
+    training_only: true
+    disjoint_from_canary: true
+  recursive_readiness_required: true
+downstream:
+  encoder: Qwen/Qwen3-Embedding-0.6B
+  encoder_max_tokens: 8192
+  embedding_dimension: 1024
+  manual_fidelity_histories: 40
+  estimator: task_specific_l2_logistic_regression
+  split_boundary: train_validation_only
+  held_out_test_reopened: false

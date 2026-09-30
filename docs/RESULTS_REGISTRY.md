@@ -1,5 +1,14 @@
 # Results registry
 
+## Selection-v3 recovery after array 993 (2026-09-30)
+
+User-provided evidence records all 553 job-993 array tasks FAILED at commit
+`6b1286b6c5b0f1928b1c5ff7a4b02453c26cc847`, with immutable HALT bound to root shard `993_0`.
+The preserved cache contains 58 sealed passes and two rejected assessments; this is not M2
+scientific completion. `m2_selection_v3_reference_v1` is locally implemented with exact-source
+position materialization, but no real canary, confirmation, production, embedding, manual review,
+or validation-fit result exists yet. M1/M3/test are unchanged.
+
 ## Structured-v2 engineering and next reference run (2026-09-25)
 
 User-provided recursive verifier passed 988/989/990. Locally copied engineering reports record
@@ -16,6 +25,7 @@ paths, and gates. It never records patient-level values or held-out performance.
 
 | Phase | Source commit | DGX jobs | Aggregate evidence | State | Next gate |
 |---|---|---|---|---|---|
+| M2 selection-v3 recovery | Local uncommitted implementation based on failed source `6b1286b` | None submitted; source array 993 preserved FAILED | Expected `reports/generated/engineering/m2_selection_v3/{canary,confirmation,readiness}-JOB.json` then `reports/generated/final/m2_selection_v3_reference_v1/` | SOURCE IMPLEMENTED; REAL GATES PENDING | Canary including both 993 failures, disjoint confirmation, readiness, full coverage, manual review, embeddings and validation-only fit |
 | M2 generation repair v2 | Local uncommitted implementation | None submitted | Expected reports/generated/engineering/m2_structured_v2/{regression,confirmation,readiness}-JOB.json | SOURCE IMPLEMENTED; REAL GATES PENDING | All 64 regression inputs, 32 fresh confirmation inputs, readiness; production integration and manual fidelity review remain |
 | M2 rendering recovery v2 | 725162f1a900183952d22b705d335dd5255dbb3a | 985 COMPLETE; 986 FAILED | User-run semantic/hash diagnostic: replay all 32 passed (maximum 6,953 tokens); confirmation 29/32 passed, duplicate/changed/reordered series remain | RENDER FIT VERIFIED FOR REPLAY; GENERATION CONFIRMATION FAILED | Preserve evidence; new prompt version and fresh confirmation; no old full-array resubmission |
 | M2 structured development | f9cce3d09196177ab123e5467854f0435773c051 | 982 FAILED; 983 did not start | User-provided hash-verified diagnostic: 30/32 accepted, all latest responses factual retention 1.0, oversized renders 8,248/8,265; private manifest 480effa80c708f4e04e29fdb863cf1f80cc3f49048da232c820f90c27ce120d1 | RENDERING CONTEXT FAILURE; PRESERVED | Render-v2 replay; do not regenerate development or reopen old full arrays |
