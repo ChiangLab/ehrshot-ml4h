@@ -1,5 +1,17 @@
 # Next action
 
+## Current override: deploy bounded-omission v4, then review
+
+Follow `docs/M2_SELECTION_V4_RECOVERY.md`. Publish the scoped recovery commit, pull it on an idle
+DGX, then run `bash scripts/slurm/submit_m2_selection_v4.sh start`. The helper sets paths and
+queues only after the frozen source, old failure and whole-source token feasibility checks pass.
+Canary -> independent confirmation -> readiness -> bounded shards -> seal/review packet ->
+embeddings are automatically gated. Review all 40 histories before explicit `finalize` and final
+semantic verification. Never remove HALT or rerun a failed scientific gate blindly.
+The reference run does not complete the full M2 condition/sensitivity matrix. Plan that only after
+reference review, without reopening held-out testing. All older M2 launch instructions below
+are superseded. No active implementation prompt remains.
+
 Status date: 2026-09-30
 
 ## Current next action: selection-v3 recovery after array 993

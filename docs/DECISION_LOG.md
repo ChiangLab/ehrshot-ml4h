@@ -1,5 +1,13 @@
 # Decision log
 
+2026-10-06 — DEC-040: preserve job 1551 and narrow the permissible M2 extraction to bounded
+singleton code-only omissions. Protect measurements and recurrence in the source-specific output
+schema and independent semantic validator. Do not relax retention, patch generated selections,
+substitute source on failure, select easier engineering cases, or reuse old generation caches.
+Retain all original regression cases and require proof that original confirmation is unexposed.
+Before generation, verify full compact source fits 8,192 tokens for every planned input. This
+conservative feasibility gate may stop work; it must not silently truncate or change model context.
+
 2026-09-30 — DEC-039: after production array 993 failed on two generated structured-copy outputs,
 replace the output contract—not the clinical experiment—with versioned ordered source-series
 selection. Qwen may emit indices only; code materializes facts exactly from the source and retains

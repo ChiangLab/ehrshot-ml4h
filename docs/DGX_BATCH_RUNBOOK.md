@@ -1,5 +1,13 @@
 # DGX batch runbook
 
+## Current M2 deployment
+
+Use `docs/M2_SELECTION_V4_RECOVERY.md` and `submit_m2_selection_v4.sh`, not the older launchers below.
+The v4 helper uses the verified node/container, immutable run records, two active shards and two
+endpoint requests per shard. Regression and independent confirmation must both pass before any
+production job runs. Per-input cached responses make interruption resumable, but fidelity failures
+remain hard stops. Email delivery is site-dependent; status/sentinel/semantic checks remain required.
+
 For the optional governed browser-based artifact viewer, use `docs/PROJECT_EXPLORER.md`. It runs as
 a 12-hour localhost-only Slurm service and is reached through an SSH tunnel; it does not replace
 scientific sentinels or semantic validators.

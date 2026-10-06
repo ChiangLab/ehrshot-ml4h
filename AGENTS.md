@@ -1,5 +1,17 @@
 # Repository operating context
 
+## Active override: selection-v4 after canary 1551 (2026-10-06)
+
+Use `docs/M2_SELECTION_V4_RECOVERY.md`. This supersedes all older M2 launch instructions below.
+1551 failed concept retention (14/32 accepted). Preserve every old artifact. The new contract
+permits only bounded omissions of singleton code-only series; it protects all measurement values,
+text, units, recurrence and ordered trajectories. This narrows extractive M2 and must be described
+as a methodological amendment, not merely a scheduling repair. No automatic source fallback.
+Keep the same four tasks, M1-retained source, instruction model, decoding, 0.6B encoder and
+train/validation-only scope. Require full-source token feasibility, the original 32 regression
+cases, original unexposed confirmation, readiness, complete coverage, manual review, embeddings,
+fit and semantic verification. No new DGX pass is claimed. Do not rerun M1/M3/test.
+
 Active override after failed production array 993 (2026-09-30): use
 `docs/M2_SELECTION_V3_RECOVERY.md`, not the structured-v2 production launcher. Job 993 failed on
 two genuine structured-copy rejections, including an identical temperature-zero retry; the other

@@ -1,5 +1,13 @@
 # Results registry
 
+## 2026-10-06: selection-v3 canary 1551 failed; v4 has no scientific results
+
+User-provided report: 32 checked, 14 accepted, FAIL, 219.44316866248846 seconds,
+retention_concepts=23 failed-attempt entries and suppressed identical_rejected_selection count.
+Source 8a8e9a05c69472488dc323e30dd663a468c29be5, plan
+93223ab6680c8913f4d94eca4972fd20d7b5a4331c76e877c19e4f0242578135.
+No test data used. New v4 implementation and synthetic checks do not constitute DGX completion.
+
 ## Selection-v3 recovery after array 993 (2026-09-30)
 
 User-provided evidence records all 553 job-993 array tasks FAILED at commit

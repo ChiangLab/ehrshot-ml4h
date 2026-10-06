@@ -1,5 +1,16 @@
 # Current scientific protocol
 
+## Current amendment: bounded-omission M2 (2026-10-06)
+
+Selection-v4 supersedes v3 execution. At most floor(series/10) singleton code-only series per
+window may be omitted. All value/text/unit-bearing and recurrent series remain protected, with
+ordered measurement runs copied from source. Existing independent retention and 8,192-token gates
+remain in force. This is constrained extractive selection plus deterministic compaction, not
+free-form abstractive summarization; an all-kept response is valid but is reported honestly.
+Grouping retains within-series trajectories, not original interleaving across different codes.
+Do not claim that this tests unrestricted summarization or proves healthcare data are Markovian.
+See `M2_SELECTION_V4_RECOVERY.md` for frozen source/gate and deployment requirements.
+
 Selection-v3 recovery amendment (2026-09-30): structured-v2 production array 993 failed after two
 genuine output-fidelity rejections, including one identical deterministic retry. Preserve that
 evidence; do not rerun or relax it. The instruction model now emits ordered source-series indices

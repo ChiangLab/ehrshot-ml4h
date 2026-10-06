@@ -1,5 +1,16 @@
 # Project state
 
+## Current state: job 1551 failed; v4 implementation pending DGX verification
+
+2026-10-06: user-provided canary evidence at 8a8e9a0 records 32 checked, 14 accepted,
+18 rejected. The 23 retention_concepts entries count failed attempts, not unique inputs.
+219.443 seconds rules out a 12-hour timeout as this failure's cause. Confirmation and production
+have no success evidence. New namespace `m2_selection_v4_reference_v1` remains unexecuted.
+Use `M2_SELECTION_V4_RECOVERY.md`; all older next-action sections are historical.
+M1 held-out evidence and M3 reference evidence remain unchanged. M2 reference and later sensitivity
+are not complete. Exact saved-input examples can be built privately with
+`scripts/build_internal_example_atlas.py`; this does not run a model or read test rows.
+
 Status date: 2026-09-30
 
 ## Current: array 993 failed; selection-v3 recovery implemented locally

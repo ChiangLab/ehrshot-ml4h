@@ -1,0 +1,12 @@
+version: m2_selection_v4_reference_v1
+source_failed_job: "1551"
+source_commit: 8a8e9a05c69472488dc323e30dd663a468c29be5
+source_plan_hash: 93223ab6680c8913f4d94eca4972fd20d7b5a4331c76e877c19e4f0242578135
+output_contract: source_specific_bounded_omission_indices
+protected: [numeric_values, text_values, units, recurrence, ordered_trajectories]
+maximum_singleton_code_only_omissions_per_window: floor(number_of_series / 10)
+source_feasibility_before_generation: true
+preserve_original_canary_and_unexposed_confirmation: true
+legacy_cache_reuse: false
+manual_review_required: true
+test_data_used: false

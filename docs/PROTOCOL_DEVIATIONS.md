@@ -1,5 +1,14 @@
 # Protocol deviations and alignment register
 
+## DEV-047 (2026-10-06): canary concept retention and bounded extraction
+
+Selection-v3 job 1551 failed 18 of 32 inputs despite exact source materialization. Its failure
+category counts include retries. V4 constrains the response to omission indices with at most 10%
+code-only singleton series omitted per window; protects all other retention categories and keeps
+the independent validator. This is a versioned change in admissible summarization, not evidence
+that the previous output was acceptable. Preserve 1551 and all old namespaces. Status:
+IMPLEMENTED LOCALLY; DGX VERIFICATION AND SCIENTIFIC M2 COMPLETION PENDING.
+
 Status date: 2026-09-30
 
 Update after array 993: structured-v2 production failed closed on two generated-output fidelity
